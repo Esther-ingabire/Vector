@@ -30,18 +30,18 @@ def generate_otp():
 
 def send_otp_email(user, otp_code, purpose):
     subject_map = {
-        OTPRecord.Purpose.ACCOUNT_ACTIVATION: "AgriChain — Activate Your Account",
-        OTPRecord.Purpose.PASSWORD_RESET: "AgriChain — Password Reset",
-        OTPRecord.Purpose.MFA_LOGIN: "AgriChain — Login Verification",
-        OTPRecord.Purpose.CONTACT_CHANGE: "AgriChain — Verify Contact Change",
+        OTPRecord.Purpose.ACCOUNT_ACTIVATION: "ChainSight — Activate Your Account",
+        OTPRecord.Purpose.PASSWORD_RESET: "ChainSight — Password Reset",
+        OTPRecord.Purpose.MFA_LOGIN: "ChainSight — Login Verification",
+        OTPRecord.Purpose.CONTACT_CHANGE: "ChainSight — Verify Contact Change",
     }
-    subject = subject_map.get(purpose, "AgriChain — Verification Code")
+    subject = subject_map.get(purpose, "ChainSight — Verification Code")
     message = (
         f"Hello {user.get_full_name()},\n\n"
         f"Your verification code is: {otp_code}\n\n"
         f"This code expires in 24 hours.\n\n"
         f"If you did not request this, please ignore this email.\n\n"
-        f"AgriChain Supply Chain Analytics System"
+        f"ChainSight Supply Chain Analytics System"
     )
     if user.email:
         send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True)

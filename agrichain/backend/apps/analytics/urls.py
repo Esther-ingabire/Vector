@@ -1,8 +1,12 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from . import views
 
 router = DefaultRouter()
-# register viewsets here: router.register(r'resource', views.ResourceViewSet)
+router.register(r'national', views.NationalKPIViewSet, basename='national-kpi')
+router.register(r'districts', views.DistrictKPIViewSet, basename='district-kpi')
+router.register(r'reliability', views.CooperativeReliabilityViewSet, basename='reliability')
+router.register(r'delivery-comparison', views.DeliveryMethodComparisonViewSet, basename='delivery-comparison')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -25,6 +25,9 @@ class MarketAgent(models.Model):
     is_active  = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['market_name', 'stall_number']
+
     def __str__(self):
         return f"{self.user.get_full_name()} — Stall {self.stall_number}, {self.market_name}"
 
