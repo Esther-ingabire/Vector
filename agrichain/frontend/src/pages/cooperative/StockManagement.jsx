@@ -7,11 +7,11 @@ import { cooperativesApi } from '../../api/cooperatives.js'
 import toast from 'react-hot-toast'
 
 const MOCK_STOCK = [
-  { id: 1, crop: 'Tomatoes', variety: 'Roma', quantity_kg: 1200, quality_grade: 'A', location: 'Store A', added_date: '2025-01-10', expiry_date: '2025-01-20', status: 'available' },
-  { id: 2, crop: 'Avocados', variety: 'Hass', quantity_kg: 850, quality_grade: 'A', location: 'Store B', added_date: '2025-01-09', expiry_date: '2025-01-25', status: 'available' },
-  { id: 3, crop: 'Maize', variety: 'Yellow', quantity_kg: 3400, quality_grade: 'B', location: 'Store A', added_date: '2025-01-05', expiry_date: '2025-03-05', status: 'reserved' },
-  { id: 4, crop: 'Beans', variety: 'Kidney', quantity_kg: 600, quality_grade: 'A', location: 'Store C', added_date: '2025-01-08', expiry_date: '2025-02-28', status: 'available' },
-  { id: 5, crop: 'Potatoes', variety: 'Irish', quantity_kg: 2100, quality_grade: 'B', location: 'Store A', added_date: '2025-01-07', expiry_date: '2025-02-07', status: 'low_stock' },
+  { id: 1, crop: 'Tomatoes', variety: 'Roma', quantity_kg: 1200, quality_grade: 'A', location: 'Store A', added_date: '2026-01-10', expiry_date: '2026-01-20', status: 'available' },
+  { id: 2, crop: 'Avocados', variety: 'Hass', quantity_kg: 850, quality_grade: 'A', location: 'Store B', added_date: '2026-01-09', expiry_date: '2026-01-25', status: 'available' },
+  { id: 3, crop: 'Maize', variety: 'Yellow', quantity_kg: 3400, quality_grade: 'B', location: 'Store A', added_date: '2026-01-05', expiry_date: '2026-03-05', status: 'reserved' },
+  { id: 4, crop: 'Beans', variety: 'Kidney', quantity_kg: 600, quality_grade: 'A', location: 'Store C', added_date: '2026-01-08', expiry_date: '2026-02-28', status: 'available' },
+  { id: 5, crop: 'Potatoes', variety: 'Irish', quantity_kg: 2100, quality_grade: 'B', location: 'Store A', added_date: '2026-01-07', expiry_date: '2026-02-07', status: 'low_stock' },
 ]
 
 const columns = [

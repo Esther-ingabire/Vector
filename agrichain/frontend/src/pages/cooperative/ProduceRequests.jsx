@@ -5,10 +5,10 @@ import DataTable from '../../components/ui/DataTable.jsx'
 import toast from 'react-hot-toast'
 
 const MOCK_REQUESTS = [
-  { id: 'REQ-001', distributor: 'IADL Kigali', crop: 'Tomatoes', quantity_kg: 500, grade: 'A', requested_date: '2025-01-12', delivery_date: '2025-01-15', status: 'pending', price_offer: 850 },
-  { id: 'REQ-002', distributor: 'Agri-Hub Huye', crop: 'Avocados', quantity_kg: 300, grade: 'A', requested_date: '2025-01-11', delivery_date: '2025-01-14', status: 'approved', price_offer: 1200 },
-  { id: 'REQ-003', distributor: 'FreshMart Musanze', crop: 'Beans', quantity_kg: 200, grade: 'B', requested_date: '2025-01-10', delivery_date: '2025-01-13', status: 'rejected', price_offer: 600 },
-  { id: 'REQ-004', distributor: 'IADL Kigali', crop: 'Maize', quantity_kg: 1000, grade: 'B', requested_date: '2025-01-09', delivery_date: '2025-01-16', status: 'pending', price_offer: 400 },
+  { id: 'REQ-001', distributor: 'IADL Kigali', crop: 'Tomatoes', quantity_kg: 500, grade: 'A', requested_date: '2026-01-12', delivery_date: '2026-01-15', status: 'pending', price_offer: 850 },
+  { id: 'REQ-002', distributor: 'Agri-Hub Huye', crop: 'Avocados', quantity_kg: 300, grade: 'A', requested_date: '2026-01-11', delivery_date: '2026-01-14', status: 'approved', price_offer: 1200 },
+  { id: 'REQ-003', distributor: 'FreshMart Musanze', crop: 'Beans', quantity_kg: 200, grade: 'B', requested_date: '2026-01-10', delivery_date: '2026-01-13', status: 'rejected', price_offer: 600 },
+  { id: 'REQ-004', distributor: 'IADL Kigali', crop: 'Maize', quantity_kg: 1000, grade: 'B', requested_date: '2026-01-09', delivery_date: '2026-01-16', status: 'pending', price_offer: 400 },
 ]
 
 const statusStyles = {

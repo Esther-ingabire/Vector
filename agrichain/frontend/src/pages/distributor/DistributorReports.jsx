@@ -101,7 +101,7 @@ export default function DistributorReports() {
           <tbody>
             {MONTHLY.map(m => (
               <tr key={m.month} className="border-b border-gray-50">
-                <td className="py-2.5 font-medium text-gray-900">{m.month} 2025</td>
+                <td className="py-2.5 font-medium text-gray-900">{m.month} 2026</td>
                 <td className="py-2.5 text-right text-gray-600">{m.orders}</td>
                 <td className="py-2.5 text-right font-medium text-gray-900">RWF {m.spend.toLocaleString()}</td>
                 <td className="py-2.5 text-right text-gray-500">RWF {Math.round(m.spend / m.orders).toLocaleString()}</td>

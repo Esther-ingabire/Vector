@@ -2,11 +2,11 @@ import { CheckCircle, Truck, Thermometer } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable.jsx'
 
 const TRIPS = [
-  { id: 'TRIP-801', batch_id: 'BATCH-Z9A1', crop: 'Beans', weight_kg: 300, origin: 'Huye', destination: 'Kigali', date: '2025-01-10', cold_chain: false, status: 'delivered', breach: false },
-  { id: 'TRIP-802', batch_id: 'BATCH-Y3B2', crop: 'Tomatoes', weight_kg: 500, origin: 'Musanze', destination: 'Kigali', date: '2025-01-08', cold_chain: true, status: 'delivered', breach: false },
-  { id: 'TRIP-803', batch_id: 'BATCH-X5C3', crop: 'Avocados', weight_kg: 250, origin: 'Huye', destination: 'Huye Market', date: '2025-01-06', cold_chain: false, status: 'delivered', breach: false },
-  { id: 'TRIP-804', batch_id: 'BATCH-W1D4', crop: 'Maize', weight_kg: 800, origin: 'Rwamagana', destination: 'Kigali', date: '2025-01-04', cold_chain: false, status: 'delivered', breach: false },
-  { id: 'TRIP-805', batch_id: 'BATCH-V7E5', crop: 'Tomatoes', weight_kg: 420, origin: 'Musanze', destination: 'Kigali', date: '2025-01-02', cold_chain: true, status: 'delivered', breach: true },
+  { id: 'TRIP-801', batch_id: 'BATCH-Z9A1', crop: 'Beans', weight_kg: 300, origin: 'Huye', destination: 'Kigali', date: '2026-01-10', cold_chain: false, status: 'delivered', breach: false },
+  { id: 'TRIP-802', batch_id: 'BATCH-Y3B2', crop: 'Tomatoes', weight_kg: 500, origin: 'Musanze', destination: 'Kigali', date: '2026-01-08', cold_chain: true, status: 'delivered', breach: false },
+  { id: 'TRIP-803', batch_id: 'BATCH-X5C3', crop: 'Avocados', weight_kg: 250, origin: 'Huye', destination: 'Huye Market', date: '2026-01-06', cold_chain: false, status: 'delivered', breach: false },
+  { id: 'TRIP-804', batch_id: 'BATCH-W1D4', crop: 'Maize', weight_kg: 800, origin: 'Rwamagana', destination: 'Kigali', date: '2026-01-04', cold_chain: false, status: 'delivered', breach: false },
+  { id: 'TRIP-805', batch_id: 'BATCH-V7E5', crop: 'Tomatoes', weight_kg: 420, origin: 'Musanze', destination: 'Kigali', date: '2026-01-02', cold_chain: true, status: 'delivered', breach: true },
 ]
 
 const columns = [

@@ -10,7 +10,7 @@ const MOCK_BATCHES = [
     transporter: 'Jean Mugisha', vehicle: 'RAD 342C',
     cold_chain: true, temp: 11.2, temp_status: 'ok',
     gps: 'Kigali – near Nyabugogo',
-    eta: '2h 30m', dispatched: '2025-01-13 08:00', status: 'in_transit',
+    eta: '2h 30m', dispatched: '2026-01-13 08:00', status: 'in_transit',
     events: [
       { time: '08:00', event: 'Batch dispatched from Musanze' },
       { time: '09:30', event: 'Checkpoint: Rulindo — temp 11.4°C ✓' },
@@ -23,7 +23,7 @@ const MOCK_BATCHES = [
     transporter: 'Marie Uwase', vehicle: 'RAC 108A',
     cold_chain: false, temp: null, temp_status: null,
     gps: 'Huye – Muhanga road',
-    eta: '4h 15m', dispatched: '2025-01-13 07:30', status: 'in_transit',
+    eta: '4h 15m', dispatched: '2026-01-13 07:30', status: 'in_transit',
     events: [
       { time: '07:30', event: 'Batch dispatched from Huye' },
       { time: '09:00', event: 'Checkpoint: Muhanga — on schedule' },
@@ -35,7 +35,7 @@ const MOCK_BATCHES = [
     transporter: 'Diane Uwimana', vehicle: 'RAB 556T',
     cold_chain: false, temp: null, temp_status: null,
     gps: 'Huye market',
-    eta: null, dispatched: '2025-01-12 09:00', status: 'delivered',
+    eta: null, dispatched: '2026-01-12 09:00', status: 'delivered',
     events: [
       { time: '09:00', event: 'Batch dispatched from Rwamagana' },
       { time: '13:00', event: 'Arrived at Huye market — delivery confirmed' },
