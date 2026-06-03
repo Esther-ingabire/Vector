@@ -42,7 +42,7 @@ export default function SetPasswordPage() {
     setLoading(true)
     try {
       await authApi.setPassword({ new_password: data.new_password })
-      toast.success('Password set successfully. Welcome to AgriChain!')
+      toast.success('Password set successfully. Welcome to ChainSight!')
       if (user) navigateByRole(user.role, navigate)
       else navigate('/login')
     } catch {
@@ -53,17 +53,16 @@ export default function SetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-primary-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/20 backdrop-blur mb-4">
-            <Lock className="w-8 h-8 text-white" />
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 mb-4">
+              <Lock className="w-7 h-7 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">Set your password</h1>
+            <p className="text-gray-400 mt-1 text-sm">Welcome to ChainSight — create a secure password to continue.</p>
           </div>
-          <h1 className="text-3xl font-bold text-white">Set your password</h1>
-          <p className="text-primary-200 mt-1 text-sm">Welcome to AgriChain — create a secure password to continue.</p>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-1">Create a password</h2>
           <p className="text-sm text-gray-500 mb-6">
             {user?.first_name ? `Hi ${user.first_name}, ` : ''}You must set a new password before continuing.

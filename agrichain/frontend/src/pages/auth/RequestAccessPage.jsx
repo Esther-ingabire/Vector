@@ -74,7 +74,7 @@ export default function RequestAccessPage() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-primary-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success-50 mb-4">
             <CheckCircle className="w-8 h-8 text-success-500" />
@@ -91,17 +91,17 @@ export default function RequestAccessPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 py-10 px-4">
+    <div className="min-h-screen bg-primary-50 py-10 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/20 backdrop-blur mb-3">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 mb-3">
             <Leaf className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">AgriChain — Request Access</h1>
-          <p className="text-primary-200 text-sm mt-1">Complete the form below. An administrator will review your request.</p>
+          <h1 className="text-2xl font-bold text-gray-900">ChainSight — Request Access</h1>
+          <p className="text-gray-500 text-sm mt-1">Complete the form below. An administrator will review your request.</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
+        <div className="bg-white rounded-2xl shadow-lg p-8">
           <button onClick={() => navigate('/login')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-6">
             <ArrowLeft className="w-4 h-4" /> Back to login
           </button>

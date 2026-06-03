@@ -30,12 +30,12 @@ export default function DistributorDashboard() {
   return (
     <div className="space-y-6">
       {/* Profile banner */}
-      <div className="card bg-gradient-to-r from-primary-600 to-primary-700 text-white">
+      <div className="card bg-gradient-to-r from-primary-700 to-primary-600 text-white">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-primary-200 text-sm">Welcome back</p>
             <h1 className="text-2xl font-bold mt-0.5">{user?.first_name || 'Distributor'} {user?.last_name || ''}</h1>
-            <p className="text-primary-200 text-sm mt-1">Distributor · AgriChain Rwanda</p>
+            <p className="text-primary-200 text-sm mt-1">Distributor · ChainSight Rwanda</p>
           </div>
           <div className="text-right text-sm">
             <p className="text-primary-200">Today</p>

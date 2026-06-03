@@ -34,20 +34,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-primary-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo / Brand */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/20 backdrop-blur mb-4">
-            <Leaf className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white">AgriChain</h1>
-          <p className="text-primary-200 mt-1 text-sm">Supply Chain Analytics System</p>
-        </div>
-
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-1">Sign in to your account</h2>
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          {/* Logo / Brand */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 mb-4">
+              <Leaf className="w-7 h-7 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">ChainSight</h1>
+            <p className="text-gray-400 mt-1 text-sm">Supply Chain Analytics System</p>
+          </div>
+
+          <h2 className="text-lg font-semibold text-gray-800 mb-1">Sign in to your account</h2>
           <p className="text-sm text-gray-500 mb-6">Use your phone number or username and password.</p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -103,7 +103,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-primary-300 mt-6">
+        <p className="text-center text-xs text-gray-400 mt-6">
           AUCA Final Year Project · Agricultural Supply Chain Analytics · Rwanda
         </p>
       </div>
