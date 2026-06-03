@@ -1,5 +1,5 @@
 """
-AgriChain URL Configuration
+ChainSight URL Configuration
 All API routes are versioned under /api/v1/
 """
 

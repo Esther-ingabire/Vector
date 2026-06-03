@@ -1,5 +1,5 @@
 """
-Base Django settings for AgriChain Supply Chain Analytics System.
+Base Django settings for ChainSight Supply Chain Analytics System.
 All environment-specific settings are in development.py and production.py.
 """
 
@@ -166,7 +166,7 @@ EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='AgriChain <noreply@agrichain.rw>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='ChainSight <noreply@chainsight.rw>')
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = [
@@ -177,7 +177,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # ── drf-spectacular (Swagger) ─────────────────────────────────────────────────
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'AgriChain Supply Chain Analytics API',
+    'TITLE': 'ChainSight Supply Chain Analytics API',
     'DESCRIPTION': 'API for the Supply Chain Data Analytics System for Agricultural Transparency and Loss Reduction',
     'VERSION': '2.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
