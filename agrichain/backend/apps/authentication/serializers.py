@@ -24,7 +24,8 @@ class LoginSerializer(serializers.Serializer):
         if user is None:
             raise serializers.ValidationError({"credential": "No account found."})
         if user.is_locked():
-            raise serializers.ValidationError({"credential": f"Account locked until {user.locked_until.strftime(\'%H:%M\')}"})
+            locked_time = user.locked_until.strftime("%H:%M")
+            raise serializers.ValidationError({"credential": f"Account locked until {locked_time}"})
         if not user.check_password(data["password"]):
             user.record_failed_login()
             raise serializers.ValidationError({"password": "Incorrect password."})
