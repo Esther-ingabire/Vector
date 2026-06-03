@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: chainsight_db
       POSTGRES_USER: chainsight_user
-      POSTGRES_PASSWORD: chainsight_pass_2024
+      POSTGRES_PASSWORD: chainsight_pass_2026
     ports:
       - "5432:5432"
     volumes:
