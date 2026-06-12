@@ -1,19 +1,21 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, ShoppingCart, Truck, BarChart2, ClipboardList, MapPin } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, ShoppingCart, Truck, BarChart2, Settings } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import DistributorDashboard from './DistributorDashboard.jsx'
 import OrderManagement from './OrderManagement.jsx'
-import DeliveryTracking from './DeliveryTracking.jsx'
-import MarketPrices from './MarketPrices.jsx'
-import DistributorReports from './DistributorReports.jsx'
+import MarketAgentOrders from './MarketAgentOrders.jsx'
+import IncomingDeliveries from './IncomingDeliveries.jsx'
+import DistributionAnalytics from './DistributionAnalytics.jsx'
+import SettingsPage from '../shared/SettingsPage.jsx'
 
 const navItems = [
-  { to: '/distributor', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/distributor/orders', label: 'Orders', icon: ShoppingCart },
-  { to: '/distributor/deliveries', label: 'Deliveries', icon: Truck },
-  { to: '/distributor/prices', label: 'Market Prices', icon: BarChart2 },
-  { to: '/distributor/reports', label: 'Reports', icon: ClipboardList },
+  { to: '/distributor', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/distributor/orders', label: 'Orders & Cooperatives', icon: ClipboardList },
+  { to: '/distributor/agent-orders', label: 'Market Agent Orders', icon: ShoppingCart },
+  { to: '/distributor/deliveries', label: 'Incoming Deliveries', icon: Truck },
+  { to: '/distributor/analytics', label: 'Distribution Analytics', icon: BarChart2 },
+  { to: '/distributor/settings', label: 'Settings', icon: Settings },
 ]
 
 export default function DistributorLayout() {
@@ -26,9 +28,10 @@ export default function DistributorLayout() {
           <Routes>
             <Route index element={<DistributorDashboard />} />
             <Route path="orders" element={<OrderManagement />} />
-            <Route path="deliveries" element={<DeliveryTracking />} />
-            <Route path="prices" element={<MarketPrices />} />
-            <Route path="reports" element={<DistributorReports />} />
+            <Route path="agent-orders" element={<MarketAgentOrders />} />
+            <Route path="deliveries" element={<IncomingDeliveries />} />
+            <Route path="analytics" element={<DistributionAnalytics />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/distributor" replace />} />
           </Routes>
         </main>

@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'apps.iot',
     'apps.notifications',
     'apps.reports',
+    'apps.feedback',
 ]
 
 MIDDLEWARE = [

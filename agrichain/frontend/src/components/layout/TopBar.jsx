@@ -1,35 +1,218 @@
-import { Bell } from 'lucide-react'
+import { Bell, X, CheckCheck, AlertTriangle, Info, UserPlus, Package, Truck } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { analyticsApi } from '../../api/analytics.js'
+import { formatDistanceToNow } from 'date-fns'
+import toast from 'react-hot-toast'
 
-export default function TopBar({ pageTitle }) {
+const ROLE_LABELS = {
+  ADMIN: 'ADMIN', COOPERATIVE_MANAGER: 'COOPERATIVE MANAGER',
+  TRANSPORTER: 'TRANSPORTER', DISTRIBUTOR: 'DISTRIBUTOR',
+  MARKET_AGENT: 'MARKET AGENT', MINAGRI_OFFICER: 'MINAGRI OFFICER',
+}
+
+// Role-specific seed shown when the API returns nothing (demo / empty DB)
+const SEED_NOTIFICATIONS = {
+  ADMIN: [
+    { id: 'a1', Icon: UserPlus,      iconCls: 'text-primary-600 bg-primary-50',  title: 'New Registration Request',        body: 'A Cooperative Manager from Musanze is awaiting approval.',             ts: new Date(Date.now() - 25 * 60000),  read: false },
+    { id: 'a2', Icon: AlertTriangle, iconCls: 'text-danger-600 bg-danger-50',    title: 'Vehicle IoT Offline',             body: 'Cargo temperature sensor has been offline for 3+ hours.',              ts: new Date(Date.now() - 3 * 3600000), read: false },
+    { id: 'a3', Icon: Info,          iconCls: 'text-warning-600 bg-warning-50',  title: 'Sync Delay – Market Agent Forms', body: 'Last sync was 47 min ago. Expected every 15 min.',                    ts: new Date(Date.now() - 47 * 60000),  read: true  },
+  ],
+  COOPERATIVE_MANAGER: [
+    { id: 'c1', Icon: Package,       iconCls: 'text-primary-600 bg-primary-50',  title: 'New Produce Request',             body: 'Kigali Distributor has requested 500 kg of tomatoes.',                ts: new Date(Date.now() - 30 * 60000),  read: false },
+    { id: 'c2', Icon: AlertTriangle, iconCls: 'text-warning-600 bg-warning-50',  title: 'Low Stock Alert',                 body: 'Maize stock is below 10% capacity at Sector A cold storage.',         ts: new Date(Date.now() - 2 * 3600000), read: true  },
+    { id: 'c3', Icon: Truck,         iconCls: 'text-success-600 bg-success-50',  title: 'Batch Dispatched',                body: 'Batch #BT-2026-0041 has been picked up by the assigned transporter.', ts: new Date(Date.now() - 4 * 3600000), read: true  },
+  ],
+  DISTRIBUTOR: [
+    { id: 'd1', Icon: Truck,         iconCls: 'text-primary-600 bg-primary-50',  title: 'Batch In Transit',                body: 'Batch #BT-2026-0041 departed Musanze Cooperative — ETA 2 hrs.',        ts: new Date(Date.now() - 45 * 60000),  read: false },
+    { id: 'd2', Icon: Package,       iconCls: 'text-success-600 bg-success-50',  title: 'Order Confirmed',                 body: 'Your order for 300 kg of maize has been confirmed by the cooperative.', ts: new Date(Date.now() - 3 * 3600000), read: true  },
+  ],
+  MARKET_AGENT: [
+    { id: 'm1', Icon: Truck,         iconCls: 'text-success-600 bg-success-50',  title: 'Batch Arriving Soon',             body: 'Batch #BT-2026-0039 is approximately 12 km from your location.',       ts: new Date(Date.now() - 20 * 60000),  read: false },
+    { id: 'm2', Icon: AlertTriangle, iconCls: 'text-warning-600 bg-warning-50',  title: 'Quality Check Required',          body: 'Batch #BT-2026-0037 flagged — temperature exceeded threshold.',         ts: new Date(Date.now() - 5 * 3600000), read: true  },
+  ],
+  TRANSPORTER: [
+    { id: 't1', Icon: Info,          iconCls: 'text-primary-600 bg-primary-50',  title: 'New Pickup Assignment',           body: 'Pickup at Musanze Cooperative scheduled for 09:00.',                   ts: new Date(Date.now() - 60 * 60000),  read: false },
+    { id: 't2', Icon: Package,       iconCls: 'text-success-600 bg-success-50',  title: 'Delivery Confirmed',              body: 'Batch #BT-2026-0038 delivery confirmed by Kigali Distributor.',         ts: new Date(Date.now() - 6 * 3600000), read: true  },
+  ],
+  MINAGRI_OFFICER: [
+    { id: 'g1', Icon: Info,          iconCls: 'text-primary-600 bg-primary-50',  title: 'Weekly Report Ready',             body: 'National supply chain summary for Week 23 is available.',              ts: new Date(Date.now() - 2 * 3600000), read: false },
+    { id: 'g2', Icon: AlertTriangle, iconCls: 'text-warning-600 bg-warning-50',  title: 'Loss Rate Spike – Eastern',       body: 'Eastern Province post-harvest loss rate rose to 18% this week.',       ts: new Date(Date.now() - 8 * 3600000), read: true  },
+  ],
+}
+
+function mapApiNotification(n) {
+  return {
+    id: n.id,
+    Icon: Info,
+    iconCls: 'text-primary-600 bg-primary-50',
+    title: n.title || 'Notification',
+    body: n.message || '',
+    ts: new Date(n.created_at),
+    read: n.is_read,
+  }
+}
+
+export default function TopBar() {
   const { user } = useAuth()
-  const [unread, setUnread] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const panelRef = useRef(null)
 
+  const seed = SEED_NOTIFICATIONS[user?.role] || []
+  const unread = notifications.filter(n => !n.read).length
+
+  // ── Step 1: initial REST load ──────────────────────────────────────────────
   useEffect(() => {
-    analyticsApi.getNotifications({ is_read: false }).then(res => {
-      setUnread(res.data?.count || 0)
-    }).catch(() => {})
-  }, [])
+    analyticsApi.getNotifications({ page_size: 20 })
+      .then(res => {
+        const results = res.data?.results || []
+        setNotifications(results.length > 0 ? results.map(mapApiNotification) : seed)
+      })
+      .catch(() => setNotifications(seed))
+  }, [user?.role])
+
+  // ── Step 2: SSE for real-time new notifications ────────────────────────────
+  useEffect(() => {
+    const token = localStorage.getItem('access_token')
+    if (!token || !user) return
+
+    const base = import.meta.env.VITE_API_URL || '/api/v1'
+    const url  = `${base}/notifications/stream/?token=${encodeURIComponent(token)}`
+    const es   = new EventSource(url)
+
+    es.onmessage = (e) => {
+      try {
+        const n = JSON.parse(e.data)
+        const mapped = mapApiNotification(n)
+        setNotifications(prev => {
+          if (prev.some(p => p.id === n.id)) return prev   // no duplicates
+          return [mapped, ...prev]
+        })
+        // Push a toast so the user sees it even when the panel is closed
+        toast(n.title, {
+          icon: '🔔',
+          style: { fontSize: '13px' },
+          duration: 4000,
+        })
+      } catch { /* ignore malformed events */ }
+    }
+
+    es.onerror = () => {
+      // EventSource auto-reconnects — nothing to do here
+    }
+
+    return () => es.close()
+  }, [user?.id])
+
+  // ── Close panel on outside click ──────────────────────────────────────────
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const markAllRead = () => {
+    analyticsApi.markAllRead().catch(() => {})
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+  }
+
+  const initials = `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase()
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-      <h2 className="text-lg font-semibold text-gray-800">{pageTitle}</h2>
-      <div className="flex items-center gap-4">
-        <button className="relative p-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 rounded-lg">
-          <Bell className="w-5 h-5" />
-          {unread > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-danger-500 text-white text-xs rounded-full flex items-center justify-center">{unread > 9 ? '9+' : unread}</span>}
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary-500 text-white flex items-center justify-center text-sm font-semibold">
-            {user?.first_name?.[0]}{user?.last_name?.[0]}
+    <header className="h-14 bg-white border-b border-gray-100 flex items-center justify-between px-6 flex-shrink-0">
+      <div />
+      <div className="flex items-center gap-3">
+        {user?.role === 'TRANSPORTER' && (
+          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
+            <span className="text-gray-400">Status:</span>
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-50 border border-success-200 text-success-700 text-xs font-semibold">
+              <span className="w-1.5 h-1.5 bg-success-500 rounded-full" />
+              Available
+            </span>
           </div>
-          <div className="hidden md:block">
-            <p className="text-sm font-medium text-gray-700">{user?.first_name} {user?.last_name}</p>
-            <p className="text-xs text-gray-400">{user?.role?.replace(/_/g,' ')}</p>
+        )}
+
+        {/* Notifications */}
+        <div className="relative" ref={panelRef}>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="relative w-9 h-9 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+          >
+            <Bell className="w-[18px] h-[18px]" />
+            {unread > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-danger-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </button>
+
+          {open && (
+            <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-900">Notifications</span>
+                  {unread > 0 && (
+                    <span className="text-[10px] font-bold text-white bg-danger-500 px-1.5 py-0.5 rounded-full">{unread}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {unread > 0 && (
+                    <button onClick={markAllRead} className="text-xs text-primary-600 hover:underline flex items-center gap-1">
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      Mark all read
+                    </button>
+                  )}
+                  <button onClick={() => setOpen(false)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+                    <X className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                </div>
+              </div>
+
+              {/* List */}
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                {notifications.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <Bell className="w-8 h-8 mx-auto text-gray-200 mb-2" />
+                    <p className="text-sm font-medium text-gray-400">You're all caught up!</p>
+                    <p className="text-xs text-gray-300 mt-0.5">No new notifications.</p>
+                  </div>
+                ) : notifications.map(n => {
+                  const NIcon = n.Icon
+                  return (
+                    <div key={n.id} className={`flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50 ${!n.read ? 'bg-primary-50/40' : ''}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${n.iconCls}`}>
+                        <NIcon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm text-gray-800 leading-snug ${!n.read ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 leading-snug">{n.body}</p>
+                        <p className="text-[11px] text-gray-300 mt-1">{formatDistanceToNow(n.ts, { addSuffix: true })}</p>
+                      </div>
+                      {!n.read && <div className="w-2 h-2 bg-primary-500 rounded-full mt-2.5 flex-shrink-0" />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Avatar + name */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+            {initials}
+          </div>
+          <div className="hidden md:block leading-tight">
+            <p className="text-sm font-semibold text-gray-800 leading-none">{user?.first_name} {user?.last_name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ')}</p>
           </div>
         </div>
+
       </div>
     </header>
   )

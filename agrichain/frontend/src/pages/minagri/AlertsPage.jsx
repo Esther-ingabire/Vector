@@ -11,9 +11,9 @@ const MOCK_ALERTS = [
 ]
 
 const SEV_STYLES = {
-  high: { bg: 'bg-danger-50 border-danger-500', text: 'text-danger-500', badge: 'bg-danger-50 text-danger-500' },
-  medium: { bg: 'bg-warning-50 border-warning-500', text: 'text-warning-500', badge: 'bg-warning-50 text-warning-500' },
-  low: { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-500', badge: 'bg-gray-100 text-gray-500' },
+  high:   { bg: 'bg-danger-50/50 border-2 border-danger-400',  icon: 'text-danger-500',  badge: 'badge-red'   },
+  medium: { bg: 'bg-warning-50/50 border-2 border-warning-400', icon: 'text-warning-500', badge: 'badge-amber' },
+  low:    { bg: 'bg-white',                                        icon: 'text-gray-400',    badge: 'badge-gray'  },
 }
 
 export default function AlertsPage() {
@@ -71,15 +71,15 @@ export default function AlertsPage() {
         {shown.map(a => {
           const s = SEV_STYLES[a.severity]
           return (
-            <div key={a.id} className={`card border-l-4 ${s.bg} ${a.resolved ? 'opacity-60' : ''}`}>
+            <div key={a.id} className={`card p-5 ${s.bg} ${a.resolved ? 'opacity-60' : ''}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${s.badge}`}>{a.severity.toUpperCase()}</span>
+                    <span className={s.badge}>{a.severity.toUpperCase()}</span>
                     <span className="text-xs text-gray-400 capitalize">{a.category}</span>
-                    {a.resolved && <span className="text-xs text-success-500 font-medium">✓ Resolved</span>}
+                    {a.resolved && <span className="inline-flex items-center gap-1 text-xs text-success-500 font-medium"><CheckCircle className="w-3 h-3" />Resolved</span>}
                   </div>
-                  <h3 className={`font-semibold ${s.text}`}>{a.type}</h3>
+                  <h3 className={`font-semibold ${s.icon}`}>{a.type}</h3>
                   <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
                     <MapPin className="w-3 h-3" />{a.region}
                     <span className="mx-1">·</span>
@@ -88,7 +88,7 @@ export default function AlertsPage() {
                   <p className="text-sm text-gray-700 mt-2">{a.detail}</p>
                 </div>
                 {!a.resolved && (
-                  <button onClick={() => resolve(a.id)} className="btn-secondary text-sm flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+                  <button onClick={() => resolve(a.id)} className="btn-primary text-sm flex items-center gap-1 whitespace-nowrap flex-shrink-0">
                     <CheckCircle className="w-4 h-4" /> Resolve
                   </button>
                 )}

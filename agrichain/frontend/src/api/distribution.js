@@ -5,9 +5,8 @@ export const distributionApi = {
   getMyProduceRequests: (params) => apiClient.get('/distribution/produce-requests/', { params }),
   createProduceRequest: (data) => apiClient.post('/distribution/produce-requests/', data),
   getProduceRequestDetail: (id) => apiClient.get(`/distribution/produce-requests/${id}/`),
-
-  // Supply agreements
-  getSupplyAgreements: () => apiClient.get('/distribution/supply-agreements/'),
+  acceptProduceRequest: (id, data) => apiClient.post(`/distribution/produce-requests/${id}/accept/`, data || {}),
+  declineProduceRequest: (id, data) => apiClient.post(`/distribution/produce-requests/${id}/decline/`, data || {}),
 
   // Market agent links
   getMyMarketAgents: () => apiClient.get('/distribution/market-agents/'),

@@ -27,7 +27,7 @@ export default function AgentReports() {
           <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">Summary of your price recordings and batch activity.</p>
         </div>
-        <button className="btn-secondary flex items-center gap-2 text-sm">
+        <button className="btn-primary flex items-center gap-2 text-sm">
           <Download className="w-4 h-4" /> Export
         </button>
       </div>

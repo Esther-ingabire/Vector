@@ -64,7 +64,7 @@ export default function SystemAnnouncements() {
       <div className="space-y-4">
         {announcements.length === 0 && <div className="card text-center py-12 text-gray-400"><Megaphone className="w-10 h-10 mx-auto mb-2 opacity-50" /><p>No announcements yet</p></div>}
         {announcements.map(a => (
-          <div key={a.id} className={`card border-l-4 ${a.active ? 'border-primary-500' : 'border-gray-200 opacity-60'}`}>
+          <div key={a.id} className={`card border-2 ${a.active ? 'border-primary-500' : 'border-gray-200 opacity-60'}`}>
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">

@@ -19,6 +19,66 @@ from .serializers import (
 from .permissions import IsAdminRole
 
 
+def create_role_profile(user, access_request):
+    """Auto-create role-specific entity when admin approves a user."""
+    role = user.role
+    org = access_request.organization_name or ''
+    district = access_request.district or ''
+    phone = access_request.phone_number or ''
+
+    if role == 'COOPERATIVE_MANAGER':
+        from apps.cooperatives.models import Cooperative
+        if not hasattr(user, 'cooperative'):
+            import datetime
+            reg_num = f"COOP-{datetime.date.today().year}-{user.id:04d}"
+            Cooperative.objects.create(
+                manager=user,
+                name=org or f"{user.get_full_name()} Cooperative",
+                registration_number=reg_num,
+                district=district,
+                contact_phone=phone,
+                reliability_score=0.0,
+                on_time_dispatch_rate=0.0,
+                quality_consistency_rate=0.0,
+                response_rate=0.0,
+                total_batches_dispatched=0,
+                is_active=True,
+            )
+
+    elif role == 'DISTRIBUTOR':
+        from apps.distribution.models import Distributor
+        if not hasattr(user, 'distributor_profile'):
+            Distributor.objects.create(
+                user=user,
+                company_name=org,
+                warehouse_location=district,
+                district=district,
+                contact_phone=phone,
+                is_active=True,
+            )
+
+    elif role == 'TRANSPORTER':
+        from apps.transport.models import Transporter
+        if not hasattr(user, 'transporter_profile'):
+            Transporter.objects.create(
+                user=user,
+                company_name=org,
+                operating_districts=[district] if district else ['Kigali'],
+                is_active=True,
+            )
+
+    elif role == 'MARKET_AGENT':
+        from apps.market_agents.models import MarketAgent
+        if not hasattr(user, 'market_agent_profile'):
+            MarketAgent.objects.create(
+                user=user,
+                stall_number='TBD',
+                market_name=org or f"{district} Market",
+                market_district=district,
+                is_active=True,
+            )
+
+
 def get_client_ip(request):
     x_forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
     return x_forwarded.split(",")[0] if x_forwarded else request.META.get("REMOTE_ADDR")
@@ -171,6 +231,9 @@ def approve_and_create_user(request, access_request_id):
 
     user = serializer.save()
 
+    # Create role-specific profile entity
+    create_role_profile(user, access_request)
+
     # Link access request to created user
     access_request.status = AccessRequest.Status.APPROVED
     access_request.reviewed_by = request.user
@@ -220,10 +283,36 @@ class UserViewSet(viewsets.ModelViewSet):
         return qs
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 def me(request):
+    if request.method == "PATCH":
+        allowed = {"first_name", "last_name", "email", "language_preference"}
+        data = {k: v for k, v in request.data.items() if k in allowed}
+        for field, value in data.items():
+            setattr(request.user, field, value)
+        request.user.save(update_fields=list(data.keys()))
+        log_action(request.user, AuditLog.Action.DATA_UPDATED, "User updated their profile", request)
+        return Response(UserSerializer(request.user).data)
     return Response(UserSerializer(request.user).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAdminRole])
+def create_user_directly(request):
+    """Admin creates a user directly without a registration request (e.g. MINAGRI Officer)."""
+    serializer = UserCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    user = serializer.save()
+    otp_code, _ = create_otp_record(user, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
+    send_otp_email(user, otp_code, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
+    log_action(request.user, AuditLog.Action.ACCOUNT_CREATED,
+               f"Directly created account for {user.get_full_name()} ({user.role})", request)
+    return Response({
+        "message": f"Account created. OTP sent to {user.email or user.phone_number}.",
+        "user": UserSerializer(user).data,
+    }, status=status.HTTP_201_CREATED)
 
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):

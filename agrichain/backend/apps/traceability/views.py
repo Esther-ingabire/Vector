@@ -1,6 +1,7 @@
 import qrcode
 import io
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,17 +21,22 @@ class BatchViewSet(viewsets.ModelViewSet):
                 return Batch.objects.none()
         if user.role == 'DISTRIBUTOR':
             try:
-                return Batch.objects.filter(received_by_distributor=user.distributor_profile)
+                dist = user.distributor_profile
+                # Include both received batches and in-transit batches destined for this distributor
+                return Batch.objects.filter(
+                    received_by_distributor=dist
+                ) | Batch.objects.filter(
+                    supply_agreement__produce_request__distributor=dist
+                ).distinct()
             except Exception:
                 return Batch.objects.none()
         if user.role == 'TRANSPORTER':
             try:
                 transporter = user.transporter_profile
-                return Batch.objects.filter(
-                    transport_request_leg1__transporter=transporter
-                ) | Batch.objects.filter(
-                    transport_request_leg2__transporter=transporter
-                )
+                return (
+                    Batch.objects.filter(transport_request_leg1__transporter=transporter) |
+                    Batch.objects.filter(transport_request_leg2__transporter=transporter)
+                ).distinct()
             except Exception:
                 return Batch.objects.none()
         if user.role in ('ADMIN', 'MINAGRI_OFFICER'):
@@ -85,6 +91,46 @@ class BatchViewSet(viewsets.ModelViewSet):
             return Response(BatchSerializer(batch).data)
         except Batch.DoesNotExist:
             return Response({'detail': 'Batch not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'], url_path='confirm-receipt')
+    def confirm_receipt(self, request, pk=None):
+        """
+        Distributor confirms receipt of a batch at their warehouse.
+        Records received weight, quality grade, and logs the QR scan event.
+        Computes transit loss (leg 1) automatically.
+        """
+        batch = self.get_object()
+
+        received_qty = request.data.get('received_qty_kg')
+        quality = request.data.get('quality_grade_received', '')
+        notes = request.data.get('notes', '')
+
+        # Allow re-confirmation (idempotent)
+        try:
+            dist = request.user.distributor_profile
+        except Exception:
+            dist = None
+
+        if received_qty is not None:
+            batch.weight_at_distributor_kg = received_qty
+        batch.quality_at_distributor = quality
+        batch.received_by_distributor = dist
+        batch.distributor_receipt_timestamp = timezone.now()
+        batch.current_status = Batch.Status.AT_DISTRIBUTOR
+
+        # Compute transit loss (dispatch weight vs received weight)
+        batch.calculate_transit_loss_leg1()
+        batch.calculate_total_loss()
+        batch.save()
+
+        # Record the handover scan event
+        QRCodeScanEvent.objects.get_or_create(
+            batch=batch,
+            scan_point=QRCodeScanEvent.ScanPoint.DISTRIBUTOR_RECEIPT,
+            defaults={'scanned_by': request.user},
+        )
+
+        return Response(BatchSerializer(batch).data)
 
 
 class QRCodeScanEventViewSet(viewsets.ReadOnlyModelViewSet):

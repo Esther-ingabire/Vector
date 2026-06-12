@@ -27,7 +27,7 @@ export default function MarketPrices() {
           <h1 className="text-2xl font-bold text-gray-900">Market Prices</h1>
           <p className="text-sm text-gray-500 mt-0.5">Live market prices from agents across Rwanda.</p>
         </div>
-        <button className="btn-secondary flex items-center gap-2 text-sm">
+        <button className="btn-primary flex items-center gap-2 text-sm">
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>

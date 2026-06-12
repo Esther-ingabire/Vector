@@ -39,24 +39,37 @@ class LoginSerializer(serializers.Serializer):
 
 
 class OTPVerifySerializer(serializers.Serializer):
-    phone_number = serializers.CharField()
-    otp_code     = serializers.CharField(max_length=6, min_length=6)
-    purpose      = serializers.ChoiceField(choices=OTPRecord.Purpose.choices)
+    credential = serializers.CharField(help_text="Phone number or email")
+    otp_code   = serializers.CharField(max_length=6, min_length=6)
+    purpose    = serializers.ChoiceField(
+        choices=OTPRecord.Purpose.choices,
+        default=OTPRecord.Purpose.ACCOUNT_ACTIVATION,
+        required=False,
+    )
 
     def validate(self, data):
+        credential = data["credential"].strip()
+        user = None
         try:
-            user = User.objects.get(phone_number=data["phone_number"])
+            user = User.objects.get(phone_number=credential)
         except User.DoesNotExist:
-            raise serializers.ValidationError({"phone_number": "No account with this phone number."})
+            try:
+                user = User.objects.get(email=credential)
+            except User.DoesNotExist:
+                pass
+        if user is None:
+            raise serializers.ValidationError({"credential": "No account with this phone number or email."})
+
+        purpose = data.get("purpose") or OTPRecord.Purpose.ACCOUNT_ACTIVATION
         otp_hash = hashlib.sha256(data["otp_code"].encode()).hexdigest()
         try:
-            otp_record = OTPRecord.objects.filter(user=user, purpose=data["purpose"], is_used=False).latest("created_at")
+            otp_record = OTPRecord.objects.filter(user=user, purpose=purpose, is_used=False).latest("created_at")
         except OTPRecord.DoesNotExist:
-            raise serializers.ValidationError({"otp_code": "No active OTP. Request a new one."})
+            raise serializers.ValidationError({"otp_code": "No active OTP found. Contact your administrator."})
         if otp_record.otp_code != otp_hash:
-            raise serializers.ValidationError({"otp_code": "Incorrect OTP."})
+            raise serializers.ValidationError({"otp_code": "Incorrect OTP code."})
         if otp_record.is_expired():
-            raise serializers.ValidationError({"otp_code": "OTP expired."})
+            raise serializers.ValidationError({"otp_code": "OTP has expired. Contact your administrator for a new one."})
         data["user"] = user
         data["otp_record"] = otp_record
         return data
@@ -98,7 +111,7 @@ class AccessRequestAdminSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model  = User
-        fields = ["id","username","first_name","last_name","email","phone_number","role","organization_name","district","language_preference","is_verified","must_change_password","mfa_enabled","created_at"]
+        fields = ["id","username","first_name","last_name","email","phone_number","role","organization_name","district","language_preference","is_active","is_verified","must_change_password","mfa_enabled","created_at"]
         read_only_fields = ["id","role","is_verified","must_change_password","created_at"]
 
 

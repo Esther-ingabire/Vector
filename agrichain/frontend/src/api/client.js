@@ -43,8 +43,14 @@ apiClient.interceptors.response.use(
         window.location.href = '/login'
       }
     }
-    const message = error.response?.data?.error || error.response?.data?.detail || 'An error occurred'
-    if (error.response?.status !== 401) {
+    const data = error.response?.data
+    const message = data?.error
+      || data?.detail
+      || data?.non_field_errors?.[0]
+      || (data && typeof data === 'object' ? Object.values(data).flat().find(v => typeof v === 'string') : null)
+      || 'An error occurred'
+    const isWrite = ['post', 'put', 'patch', 'delete'].includes(original?.method?.toLowerCase())
+    if (error.response?.status !== 401 && !original?._silent && isWrite) {
       toast.error(message)
     }
     return Promise.reject(error)

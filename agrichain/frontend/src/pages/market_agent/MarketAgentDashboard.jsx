@@ -18,12 +18,12 @@ export default function MarketAgentDashboard() {
   return (
     <div className="space-y-6">
       {/* Banner */}
-      <div className="card bg-gradient-to-r from-success-500 to-success-600 text-white">
+      <div className="card bg-gradient-to-r from-primary-700 to-primary-600 text-white">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm opacity-80">Welcome back</p>
+            <p className="text-primary-200 text-sm">Welcome back</p>
             <h1 className="text-2xl font-bold mt-0.5">{user?.first_name || 'Agent'} {user?.last_name || ''}</h1>
-            <p className="text-sm opacity-80 mt-1 flex items-center gap-1">
+            <p className="text-primary-200 text-sm mt-1 flex items-center gap-1">
               <MapPin className="w-3 h-3" /> Kigali Central Market
             </p>
           </div>

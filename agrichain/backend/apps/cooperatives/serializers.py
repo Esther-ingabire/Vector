@@ -57,12 +57,24 @@ class CooperativeSerializer(serializers.ModelSerializer):
 class CooperativeDirectorySerializer(serializers.ModelSerializer):
     crops_specialised = serializers.StringRelatedField(many=True)
     manager_name = serializers.SerializerMethodField()
+    composite_score = serializers.SerializerMethodField()
 
     class Meta:
         model = Cooperative
-        fields = ['id', 'name', 'district', 'crops_specialised', 'reliability_score',
+        fields = ['id', 'name', 'district', 'sector', 'description', 'crops_specialised',
+                  'reliability_score', 'on_time_dispatch_rate', 'quality_consistency_rate',
+                  'response_rate', 'total_batches_dispatched',
                   'contact_phone', 'contact_email', 'gps_latitude', 'gps_longitude',
-                  'manager_name']
+                  'manager_name', 'composite_score']
 
     def get_manager_name(self, obj):
         return obj.manager.get_full_name()
+
+    def get_composite_score(self, obj):
+        score = (
+            float(obj.reliability_score or 0) * 0.35 +
+            float(obj.quality_consistency_rate or 0) * 0.35 +
+            float(obj.response_rate or 0) * 0.20 +
+            float(obj.on_time_dispatch_rate or 0) * 0.10
+        )
+        return round(score, 2)

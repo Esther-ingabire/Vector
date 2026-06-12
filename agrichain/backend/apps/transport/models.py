@@ -18,6 +18,10 @@ class Transporter(models.Model):
                                         limit_choices_to={'role': 'TRANSPORTER'})
     company_name = models.CharField(max_length=200, blank=True, help_text="Optional — for company registrations")
     operating_districts = models.JSONField(default=list, help_text="List of districts this transporter covers")
+    registered_by_cooperative = models.ForeignKey(
+        'cooperatives.Cooperative', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='registered_transporters',
+    )
 
     is_active  = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

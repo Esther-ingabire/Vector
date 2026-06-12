@@ -10,4 +10,5 @@ router.register(r'delivery-comparison', views.DeliveryMethodComparisonViewSet, b
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('distribution/', views.DistributionAnalyticsView.as_view()),
 ]

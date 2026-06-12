@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/v1/iot/', include('apps.iot.urls')),
     path('api/v1/notifications/', include('apps.notifications.urls')),
     path('api/v1/reports/', include('apps.reports.urls')),
+    path('api/v1/feedback/', include('apps.feedback.urls')),
 ]
 
 if settings.DEBUG:

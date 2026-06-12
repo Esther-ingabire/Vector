@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Package, CheckCircle, AlertTriangle, QrCode } from 'lucide-react'
+import { Package, CheckCircle, AlertTriangle, QrCode, Snowflake } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import toast from 'react-hot-toast'
 
@@ -46,13 +46,13 @@ export default function BatchReceiving() {
           </div>
         ) : (
           incoming.map(b => (
-            <div key={b.id} className="card border-l-4 border-l-primary-500">
+            <div key={b.id} className="card border-2 border-primary-500">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-mono text-gray-400 mb-1">{b.id}</p>
                   <h3 className="font-semibold text-gray-900">{b.crop} — {b.weight_kg} kg (Grade {b.grade})</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{b.cooperative} · {b.transporter}</p>
-                  {b.cold_chain && <p className="text-xs text-primary-500 mt-0.5">❄ Cold chain</p>}
+                  {b.cold_chain && <p className="inline-flex items-center gap-1 text-xs text-info-600 mt-0.5"><Snowflake className="w-3 h-3" />Cold chain</p>}
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right text-sm text-gray-500">

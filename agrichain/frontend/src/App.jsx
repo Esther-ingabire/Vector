@@ -7,6 +7,9 @@ import { AuthProvider } from './context/AuthContext.jsx'
 import ProtectedRoute from './components/layout/ProtectedRoute.jsx'
 import PublicRoute from './components/layout/PublicRoute.jsx'
 
+// Landing page
+import LandingPage from './pages/LandingPage.jsx'
+
 // Auth pages
 import LoginPage from './pages/auth/LoginPage.jsx'
 import OTPPage from './pages/auth/OTPPage.jsx'
@@ -28,6 +31,9 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
+        {/* Landing page */}
+        <Route path="/" element={<LandingPage />} />
+
         {/* Public routes */}
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/verify-otp" element={<PublicRoute><OTPPage /></PublicRoute>} />
@@ -50,9 +56,8 @@ export default function App() {
         <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER']}><TransporterLayout /></ProtectedRoute>} />
         <Route path="/market-agent/*" element={<ProtectedRoute roles={['MARKET_AGENT']}><MarketAgentLayout /></ProtectedRoute>} />
 
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
   )

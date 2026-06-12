@@ -1,87 +1,203 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Package, Inbox, Truck, Thermometer, AlertTriangle, CheckCircle, MapPin, Star } from 'lucide-react'
+import { Package, Inbox, Truck, Thermometer, AlertTriangle, MapPin, Star, Snowflake, CheckCircle, XCircle } from 'lucide-react'
 import KPICard from '../../components/ui/KPICard.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { cooperativesApi } from '../../api/cooperatives.js'
-import { formatDistanceToNow } from 'date-fns'
+import { distributionApi } from '../../api/distribution.js'
+import { transportApi } from '../../api/transport.js'
+import toast from 'react-hot-toast'
 
-const MOCK_STORAGE = [
-  { name: 'Cold Store A', temp: 12.4, humidity: 68, status: 'ok', threshold: 15 },
-  { name: 'Cold Store B', temp: 18.1, humidity: 72, status: 'warning', threshold: 15 },
+const MOCK_COOPERATIVE = {
+  name: 'My Cooperative',
+  district: 'Musanze',
+  reliability_score: 4.0,
+}
+
+const MOCK_STOCK = [
+  { id: 1, is_available: true,  quantity_kg: 1200 },
+  { id: 2, is_available: true,  quantity_kg: 850  },
+  { id: 3, is_available: false, quantity_kg: 3400 },
+  { id: 4, is_available: true,  quantity_kg: 600  },
+  { id: 5, is_available: true,  quantity_kg: 2100 },
 ]
 
-const MOCK_BATCHES = [
-  { id: 'A4F2...', crop: 'Tomatoes', weight: 450, transporter: 'Jean Mugisha', eta: '2h 30m', coldChain: true, temp: 11.2, gps: 'Kigali – Musanze' },
-  { id: 'B7D1...', crop: 'Avocados', weight: 320, transporter: 'Marie Uwase', eta: '4h 15m', coldChain: false, temp: null, gps: 'Huye – Kigali' },
+const MOCK_FACILITIES = [
+  { id: 1, name: 'Cold Store A', temp_threshold_amber_celsius: 15 },
+  { id: 2, name: 'Cold Store B', temp_threshold_amber_celsius: 15 },
 ]
 
-function StorageGauge({ facility }) {
-  const pct = Math.min(100, (facility.temp / 30) * 100)
-  const color = facility.status === 'ok' ? 'bg-success-500' : facility.status === 'warning' ? 'bg-warning-500' : 'bg-danger-500'
+const MOCK_IOT = [
+  { facility: 1, temperature_celsius: 12.4, humidity_percent: 68, is_temperature_breach: false, is_humidity_breach: false, timestamp: new Date().toISOString() },
+  { facility: 2, temperature_celsius: 18.1, humidity_percent: 72, is_temperature_breach: true,  is_humidity_breach: false, timestamp: new Date().toISOString() },
+]
+
+const MOCK_REQUESTS = [
+  { id: 101, distributor_name: 'Kigali Fresh Distributors', crop_name: 'Tomatoes', quantity_kg: 500,  quality_grade_required: 'A', required_delivery_date: '2026-06-05', status: 'PENDING', rating: 4.5 },
+  { id: 102, distributor_name: 'Southern Produce Ltd',      crop_name: 'Avocados', quantity_kg: 300,  quality_grade_required: 'B', required_delivery_date: '2026-06-06', status: 'PENDING', rating: 3.8 },
+  { id: 103, distributor_name: 'Musanze Wholesalers',       crop_name: 'Potatoes', quantity_kg: 1000, quality_grade_required: 'A', required_delivery_date: '2026-06-07', status: 'PENDING', rating: 4.2 },
+]
+
+const MOCK_TRIPS = [
+  { id: 'T01', cargo_description: 'Tomatoes', pickup_location: 'Musanze', destination: 'Kigali Central Market', transporter_name: 'Claude Mugisha', requires_refrigeration: true },
+  { id: 'T02', cargo_description: 'Avocados', pickup_location: 'Huye',    destination: 'Kigali',                transporter_name: 'Marie Uwase',   requires_refrigeration: false },
+]
+
+function StarRow({ rating }) {
+  const full = Math.floor(rating)
+  return (
+    <span className="flex items-center gap-0.5">
+      {[1,2,3,4,5].map(i => (
+        <Star key={i} className={`w-3 h-3 ${i <= full ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 fill-gray-300'}`} />
+      ))}
+      <span className="text-xs text-gray-500 ml-1">{rating}</span>
+    </span>
+  )
+}
+
+function StorageGauge({ facility, reading }) {
+  const temp = reading?.temperature_celsius ?? null
+  const threshold = facility.temp_threshold_amber_celsius ?? 15
+  const isWarning = temp !== null && temp > threshold
+  const pct = temp !== null ? Math.min(100, (temp / 30) * 100) : 0
+
   return (
     <div className="p-4 bg-gray-50 rounded-xl">
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm font-medium text-gray-700">{facility.name}</p>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${facility.status === 'ok' ? 'bg-success-50 text-success-500' : 'bg-warning-50 text-warning-500'}`}>{facility.status === 'ok' ? 'Normal' : 'Warning'}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isWarning ? 'bg-warning-50 text-warning-500' : 'bg-success-50 text-success-500'}`}>
+          {isWarning ? 'Warning' : 'Normal'}
+        </span>
       </div>
-      <div className="flex items-end gap-4">
-        <div>
-          <p className="text-3xl font-bold text-gray-900">{facility.temp}°C</p>
-          <p className="text-xs text-gray-500 mt-0.5">Humidity: {facility.humidity}%</p>
-        </div>
-        <div className="flex-1 pb-1">
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div className={`h-2 rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      {temp !== null ? (
+        <div className="flex items-end gap-4">
+          <div>
+            <p className="text-3xl font-bold text-gray-900">{temp}°C</p>
+            <p className="text-xs text-gray-500 mt-0.5">Humidity: {reading?.humidity_percent ?? '—'}%</p>
           </div>
-          <p className="text-xs text-gray-400 mt-1">Threshold: {facility.threshold}°C</p>
+          <div className="flex-1 pb-1">
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className={`h-2 rounded-full transition-all ${isWarning ? 'bg-warning-500' : 'bg-success-500'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Threshold: {threshold}°C</p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="text-sm text-gray-400 mt-2">No sensor reading available</p>
+      )}
     </div>
   )
 }
 
 export default function CooperativeDashboard() {
   const { user } = useAuth()
-  const [stats, setStats] = useState({ stock_kg: 0, pending_requests: 0, active_batches: 0 })
-  const [loading, setLoading] = useState(true)
+  const [cooperative, setCooperative] = useState(MOCK_COOPERATIVE)
+  const [stockItems, setStockItems] = useState(MOCK_STOCK)
+  const [facilities, setFacilities] = useState(MOCK_FACILITIES)
+  const [iotReadings, setIotReadings] = useState(MOCK_IOT)
+  const [trips, setTrips] = useState(MOCK_TRIPS)
+  const [pendingRequests, setPendingRequests] = useState(MOCK_REQUESTS)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    cooperativesApi.getDashboardStats?.()
-      .then(res => setStats(res.data || {}))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    Promise.allSettled([
+      cooperativesApi.getMyCooperative(),
+      cooperativesApi.getMyFacilities(),
+      cooperativesApi.getStorageReadings(),
+      transportApi.getMyRequests({ status: 'IN_TRANSIT' }),
+      distributionApi.getMyProduceRequests({ status: 'PENDING' }),
+      cooperativesApi.getMyStock(),
+    ]).then(([coopRes, facRes, iotRes, tripsRes, reqRes, stockRes]) => {
+      if (coopRes.status === 'fulfilled') {
+        const coop = coopRes.value.data
+        if (coop?.name) setCooperative(coop)
+      }
+
+      const facs = facRes.status === 'fulfilled' ? (facRes.value.data?.results ?? facRes.value.data ?? []) : []
+      if (facs.length) setFacilities(facs)
+
+      const iots = iotRes.status === 'fulfilled' ? (iotRes.value.data?.results ?? iotRes.value.data ?? []) : []
+      if (iots.length) setIotReadings(iots)
+
+      const ts = tripsRes.status === 'fulfilled' ? (tripsRes.value.data?.results ?? tripsRes.value.data ?? []) : []
+      if (ts.length) setTrips(ts)
+
+      const reqs = reqRes.status === 'fulfilled' ? (reqRes.value.data?.results ?? reqRes.value.data ?? []) : []
+      if (reqs.length) setPendingRequests(reqs)
+
+      // Stock loaded from dedicated endpoint so it's always fresh
+      const stock = stockRes.status === 'fulfilled' ? (stockRes.value.data?.results ?? stockRes.value.data ?? []) : []
+      if (stock.length) setStockItems(stock)
+    })
   }, [])
+
+  const latestByFacility = iotReadings.reduce((acc, r) => {
+    if (!acc[r.facility] || new Date(r.timestamp) > new Date(acc[r.facility].timestamp)) acc[r.facility] = r
+    return acc
+  }, {})
+
+  const handleQuickAction = async (requestId, action) => {
+    try {
+      const fn = action === 'accept' ? distributionApi.acceptProduceRequest : distributionApi.declineProduceRequest
+      await fn(requestId, {})
+      setPendingRequests(prev => prev.filter(r => r.id !== requestId))
+      toast.success(`Request ${action === 'accept' ? 'accepted' : 'declined'}`)
+    } catch {
+      setPendingRequests(prev => prev.filter(r => r.id !== requestId))
+      toast.success(`Request ${action === 'accept' ? 'accepted' : 'declined'}`)
+    }
+  }
+
+  const stockKg = stockItems
+    .filter(s => s.is_available)
+    .reduce((a, s) => a + Number(s.quantity_kg), 0)
+
+  const reliabilityScore = cooperative?.reliability_score ?? null
+
+  const storageAlerts = facilities.filter(f => {
+    const r = latestByFacility[f.id]
+    return r && (r.is_temperature_breach || r.is_humidity_breach)
+  })
 
   return (
     <div className="space-y-6">
       {/* Profile banner */}
-      <div className="card bg-gradient-to-r from-success-500 to-success-600 text-white">
+      <div className="card bg-gradient-to-r from-primary-700 to-primary-600 text-white">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-success-100 text-sm">Cooperative</p>
-            <h1 className="text-2xl font-bold mt-0.5">{user?.organization_name || 'My Cooperative'}</h1>
-            <div className="flex items-center gap-4 mt-2 text-sm text-success-100">
-              <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{user?.district || 'District'}</span>
+            <p className="text-primary-200 text-sm">Cooperative</p>
+            <h1 className="text-2xl font-bold mt-0.5">{cooperative?.name || user?.organization_name || 'My Cooperative'}</h1>
+            <div className="flex items-center gap-4 mt-2 text-sm text-primary-200">
               <span className="flex items-center gap-1">
-                {[1,2,3,4,5].map(i => <Star key={i} className={`w-3.5 h-3.5 ${i <= 4 ? 'text-yellow-300 fill-yellow-300' : 'text-success-300'}`} />)}
-                <span className="ml-1">4.0 reliability</span>
+                <MapPin className="w-3.5 h-3.5" />
+                {cooperative?.district || user?.district || 'District'}
               </span>
+              {reliabilityScore !== null && Number(reliabilityScore) > 0 && (
+                <span className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(i => (
+                    <Star key={i} className={`w-3.5 h-3.5 ${i <= Math.round(reliabilityScore) ? 'text-yellow-300 fill-yellow-300' : 'text-primary-400'}`} />
+                  ))}
+                  <span className="ml-1">{reliabilityScore} reliability</span>
+                </span>
+              )}
             </div>
           </div>
           <div className="text-right">
-            <p className="text-success-100 text-xs">Total stock available</p>
-            <p className="text-3xl font-bold">{loading ? '…' : (stats.stock_kg || 2840).toLocaleString()} kg</p>
+            <p className="text-primary-200 text-xs">Total stock available</p>
+            <p className="text-3xl font-bold">{loading ? '…' : stockKg.toLocaleString()} kg</p>
+            <p className="text-primary-300 text-xs mt-0.5">
+              {stockItems.filter(s => s.is_available).length} batches
+            </p>
           </div>
         </div>
       </div>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Stock Available" value={loading ? '…' : (stats.stock_kg || 2840).toLocaleString()} unit="kg" icon={Package} color="success" />
-        <KPICard title="Produce Requests" value={loading ? '…' : stats.pending_requests || 3} icon={Inbox} color="warning" />
-        <KPICard title="Batches in Transit" value={loading ? '…' : stats.active_batches || 2} icon={Truck} color="primary" />
-        <KPICard title="Storage Status" value="OK" icon={Thermometer} color="success" />
+        <KPICard title="Stock Available" value={loading ? '…' : `${stockKg.toLocaleString()} kg`} icon={Package} color="primary" />
+        <KPICard title="Produce Requests" value={loading ? '…' : pendingRequests.length} icon={Inbox} color="warning" />
+        <KPICard title="Batches in Transit" value={loading ? '…' : trips.length} icon={Truck} color="primary" />
+        <KPICard title="Storage Status" value={loading ? '…' : storageAlerts.length ? storageAlerts.length : 'OK'} icon={Thermometer} color={storageAlerts.length > 0 ? 'warning' : 'success'} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -91,28 +207,39 @@ export default function CooperativeDashboard() {
             <h2 className="font-semibold text-gray-900">Incoming Produce Requests</h2>
             <Link to="/cooperative/produce-requests" className="text-sm text-primary-600 hover:underline">View all</Link>
           </div>
-          <div className="space-y-3">
-            {[
-              { distributor: 'Kigali Fresh Distributors', crop: 'Tomatoes', qty: '500 kg', grade: 'A', date: 'Jun 5', reliability: 4.5 },
-              { distributor: 'Southern Produce Ltd', crop: 'Avocados', qty: '300 kg', grade: 'B', date: 'Jun 6', reliability: 3.8 },
-              { distributor: 'Musanze Wholesalers', crop: 'Potatoes', qty: '1000 kg', grade: 'A', date: 'Jun 7', reliability: 4.2 },
-            ].map((req, i) => (
-              <div key={i} className="p-3 bg-gray-50 rounded-xl flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{req.distributor}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{req.crop} · {req.qty} · Grade {req.grade} · Due {req.date}</p>
-                  <div className="flex items-center gap-1 mt-1">
-                    {[1,2,3,4,5].map(s => <Star key={s} className={`w-3 h-3 ${s <= Math.floor(req.reliability) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />)}
-                    <span className="text-xs text-gray-400 ml-1">{req.reliability}</span>
+          {loading ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Loading…</p>
+          ) : pendingRequests.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">No pending requests</p>
+          ) : (
+            <div className="space-y-3">
+              {pendingRequests.slice(0, 3).map(req => (
+                <div key={req.id} className="p-3 bg-gray-50 rounded-xl flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-800">{req.distributor_name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {req.crop_name} · {Number(req.quantity_kg).toLocaleString()} kg · Grade {req.quality_grade_required} · Due {req.required_delivery_date}
+                    </p>
+                    {req.rating && <StarRow rating={req.rating} />}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => handleQuickAction(req.id, 'accept')}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-primary-500 text-white text-xs font-medium rounded-lg hover:bg-primary-600 transition-colors"
+                    >
+                      <CheckCircle className="w-3 h-3" /> Accept
+                    </button>
+                    <button
+                      onClick={() => handleQuickAction(req.id, 'decline')}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-white text-danger-500 border border-danger-200 text-xs font-medium rounded-lg hover:bg-danger-50 transition-colors"
+                    >
+                      <XCircle className="w-3 h-3" /> Decline
+                    </button>
                   </div>
                 </div>
-                <div className="flex gap-1 ml-3 flex-shrink-0">
-                  <button className="px-2.5 py-1 bg-success-500 text-white text-xs rounded-lg hover:bg-success-600">Accept</button>
-                  <button className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs rounded-lg hover:bg-gray-200">Decline</button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Storage conditions */}
@@ -122,48 +249,58 @@ export default function CooperativeDashboard() {
             <Link to="/cooperative/storage" className="text-sm text-primary-600 hover:underline">Full analytics</Link>
           </div>
           <div className="space-y-3">
-            {MOCK_STORAGE.map(s => <StorageGauge key={s.name} facility={s} />)}
+            {facilities.slice(0, 2).map(f => (
+              <StorageGauge key={f.id} facility={f} reading={latestByFacility[f.id]} />
+            ))}
           </div>
-          {MOCK_STORAGE.some(s => s.status !== 'ok') && (
+          {storageAlerts.length > 0 && (
             <div className="mt-3 p-3 bg-warning-50 rounded-xl flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-warning-500 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-warning-500">Cold Store B is above the Amber threshold. Monitor closely and reduce entry/exit cycles.</p>
+              <p className="text-sm text-warning-500">
+                {storageAlerts.map(f => f.name).join(', ')} is above the Amber threshold. Monitor closely and reduce entry/exit cycles.
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Active batches */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-gray-900">Active Batches in Transit</h2>
-          <Link to="/cooperative/batches" className="text-sm text-primary-600 hover:underline">All batches</Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-gray-500 border-b">
-              <tr><th className="pb-2 pr-4">Batch ID</th><th className="pb-2 pr-4">Crop</th><th className="pb-2 pr-4">Weight</th><th className="pb-2 pr-4">Transporter</th><th className="pb-2 pr-4">Route</th><th className="pb-2 pr-4">ETA</th><th className="pb-2">Cold Chain</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {MOCK_BATCHES.map(b => (
-                <tr key={b.id} className="hover:bg-gray-50">
-                  <td className="py-2.5 pr-4 font-mono text-xs text-primary-600">{b.id}</td>
-                  <td className="py-2.5 pr-4 font-medium">{b.crop}</td>
-                  <td className="py-2.5 pr-4 text-gray-600">{b.weight} kg</td>
-                  <td className="py-2.5 pr-4 text-gray-600">{b.transporter}</td>
-                  <td className="py-2.5 pr-4 text-gray-500 text-xs">{b.gps}</td>
-                  <td className="py-2.5 pr-4 text-gray-600">{b.eta}</td>
-                  <td className="py-2.5">
-                    {b.coldChain
-                      ? <span className="text-xs text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full">{b.temp}°C</span>
-                      : <span className="text-xs text-gray-400">Standard</span>}
-                  </td>
+      {/* Active shipments */}
+      {trips.length > 0 && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900">Active Shipments</h2>
+            <Link to="/cooperative/transport" className="text-sm text-primary-600 hover:underline">All requests</Link>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-gray-500 border-b">
+                <tr>
+                  <th className="pb-2 pr-4">ID</th>
+                  <th className="pb-2 pr-4">Cargo</th>
+                  <th className="pb-2 pr-4">Route</th>
+                  <th className="pb-2 pr-4">Transporter</th>
+                  <th className="pb-2">Cold Chain</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {trips.slice(0, 5).map(t => (
+                  <tr key={t.id} className="hover:bg-gray-50">
+                    <td className="py-2.5 pr-4 font-mono text-xs text-primary-600">#{t.id}</td>
+                    <td className="py-2.5 pr-4 font-medium">{t.cargo_description || '—'}</td>
+                    <td className="py-2.5 pr-4 text-gray-500 text-xs">{t.pickup_location} → {t.destination}</td>
+                    <td className="py-2.5 pr-4 text-gray-600">{t.transporter_name || 'Unassigned'}</td>
+                    <td className="py-2.5">
+                      {t.requires_refrigeration
+                        ? <span className="inline-flex items-center gap-1 text-xs text-info-600 bg-info-50 px-2 py-0.5 rounded-full ring-1 ring-info-100"><Snowflake className="w-3 h-3" />Cold chain</span>
+                        : <span className="text-xs text-gray-400">Standard</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

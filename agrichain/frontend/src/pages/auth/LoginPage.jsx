@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, Leaf } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
+import ChainSightLogo from '../../components/ui/ChainSightLogo.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
 
@@ -14,10 +15,11 @@ const schema = z.object({
 
 export default function LoginPage() {
   const { login } = useAuth()
+  const navigate = useNavigate()
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const { register, handleSubmit, formState: { errors } } = useForm({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm({
     resolver: zodResolver(schema),
   })
 
@@ -26,7 +28,20 @@ export default function LoginPage() {
     try {
       await login(data.credential, data.password)
     } catch (err) {
-      const msg = err.response?.data?.error || 'Login failed. Please check your credentials.'
+      const errData = err.response?.data
+      const msg = errData?.error
+        || errData?.detail
+        || errData?.credential?.[0] || errData?.credential
+        || errData?.password?.[0]  || errData?.password
+        || errData?.non_field_errors?.[0]
+        || 'Login failed. Please check your credentials.'
+
+      // Account exists but not yet activated — guide them to OTP page
+      if (typeof msg === 'string' && (msg.includes('not activated') || msg.includes('OTP'))) {
+        navigate('/otp', { state: { phone: data.credential } })
+        toast('Check your email for the activation code.', { icon: '📧' })
+        return
+      }
       toast.error(msg)
     } finally {
       setLoading(false)
@@ -40,9 +55,7 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-lg p-8">
           {/* Logo / Brand */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 mb-4">
-              <Leaf className="w-7 h-7 text-white" />
-            </div>
+            <ChainSightLogo size={60} className="logo-hover-spin mb-4 drop-shadow-md block mx-auto" />
             <h1 className="text-2xl font-bold text-gray-900">ChainSight</h1>
             <p className="text-gray-400 mt-1 text-sm">Supply Chain Analytics System</p>
           </div>
@@ -93,7 +106,13 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-100 text-center">
+          <div className="mt-6 pt-6 border-t border-gray-100 space-y-3 text-center">
+            <p className="text-sm text-gray-500">
+              First time logging in?{' '}
+              <Link to="/otp" className="text-primary-600 font-medium hover:underline">
+                Enter your activation code
+              </Link>
+            </p>
             <p className="text-sm text-gray-500">
               Don't have an account?{' '}
               <Link to="/request-access" className="text-primary-600 font-medium hover:underline">
@@ -103,9 +122,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          AUCA Final Year Project · Agricultural Supply Chain Analytics · Rwanda
-        </p>
       </div>
     </div>
   )

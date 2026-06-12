@@ -43,7 +43,7 @@ export default function NationalReports() {
           <select className="input text-sm py-1.5 w-40" value={period} onChange={e => setPeriod(e.target.value)}>
             {PERIODS.map(p => <option key={p}>{p}</option>)}
           </select>
-          <button className="btn-secondary flex items-center gap-2 text-sm">
+          <button className="btn-primary flex items-center gap-2 text-sm">
             <Download className="w-4 h-4" /> Export
           </button>
         </div>

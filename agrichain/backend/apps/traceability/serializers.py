@@ -53,9 +53,14 @@ class BatchListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Batch
-        fields = ['id', 'batch_id', 'batch_id_short', 'cooperative_name', 'crop_name',
-                  'dispatch_weight_kg', 'current_status', 'dispatch_timestamp',
-                  'total_loss_pct']
+        fields = [
+            'id', 'batch_id', 'batch_id_short', 'cooperative_name', 'crop_name',
+            'dispatch_weight_kg', 'quality_grade_at_dispatch',
+            'current_status', 'dispatch_timestamp',
+            'weight_at_distributor_kg', 'quality_at_distributor',
+            'distributor_receipt_timestamp',
+            'transit_loss_leg1_pct', 'total_loss_pct',
+        ]
 
     def get_batch_id_short(self, obj):
         return str(obj.batch_id)[:8].upper()

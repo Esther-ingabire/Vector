@@ -13,10 +13,12 @@ class VehicleSerializer(serializers.ModelSerializer):
 class TransporterSerializer(serializers.ModelSerializer):
     vehicles = VehicleSerializer(many=True, read_only=True)
     name = serializers.SerializerMethodField()
+    phone_number = serializers.CharField(source='user.phone_number', read_only=True)
 
     class Meta:
         model = Transporter
-        fields = ['id', 'user', 'company_name', 'operating_districts', 'is_active', 'vehicles', 'name']
+        fields = ['id', 'user', 'company_name', 'operating_districts', 'is_active',
+                  'vehicles', 'name', 'phone_number']
         read_only_fields = ['id', 'user']
 
     def get_name(self, obj):
@@ -43,15 +45,39 @@ class TripSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+class TripListSerializer(serializers.ModelSerializer):
+    """Flat serializer for trip list — includes denormalized route/cargo from transport_request."""
+    pickup_location          = serializers.CharField(source='transport_request.pickup_location', read_only=True)
+    destination              = serializers.CharField(source='transport_request.destination', read_only=True)
+    cargo_description        = serializers.CharField(source='transport_request.cargo_description', read_only=True)
+    estimated_cargo_weight_kg = serializers.DecimalField(
+        source='transport_request.estimated_cargo_weight_kg', max_digits=10, decimal_places=2, read_only=True
+    )
+    requires_refrigeration   = serializers.BooleanField(source='transport_request.requires_refrigeration', read_only=True)
+    transit_duration_hours   = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = Trip
+        fields = [
+            'id', 'actual_pickup_datetime', 'actual_delivery_datetime',
+            'delivery_confirmed_at', 'transit_duration_hours',
+            'pickup_location', 'destination', 'cargo_description',
+            'estimated_cargo_weight_kg', 'requires_refrigeration',
+        ]
+
+
 class TransportRequestSerializer(serializers.ModelSerializer):
     trip = TripSerializer(read_only=True)
     transporter_name = serializers.CharField(source='transporter.__str__', read_only=True)
     vehicle_plate = serializers.CharField(source='vehicle.plate_number', read_only=True)
+    requester_type = serializers.SerializerMethodField()
+    requester_name = serializers.SerializerMethodField()
 
     class Meta:
         model = TransportRequest
         fields = ['id', 'requested_by_cooperative', 'requested_by_distributor',
                   'transporter', 'transporter_name', 'vehicle', 'vehicle_plate',
+                  'requester_type', 'requester_name',
                   'leg_number', 'pickup_location', 'pickup_gps_lat', 'pickup_gps_lng',
                   'destination', 'destination_gps_lat', 'destination_gps_lng',
                   'cargo_description', 'estimated_cargo_weight_kg',
@@ -59,3 +85,17 @@ class TransportRequestSerializer(serializers.ModelSerializer):
                   'status', 'decline_reason', 'accepted_at', 'notes',
                   'created_at', 'updated_at', 'trip']
         read_only_fields = ['id', 'accepted_at', 'created_at', 'updated_at']
+
+    def get_requester_type(self, obj):
+        if obj.requested_by_cooperative_id:
+            return 'Cooperative'
+        if obj.requested_by_distributor_id:
+            return 'Distributor'
+        return 'Unknown'
+
+    def get_requester_name(self, obj):
+        if obj.requested_by_cooperative:
+            return obj.requested_by_cooperative.name
+        if obj.requested_by_distributor:
+            return str(obj.requested_by_distributor)
+        return '—'

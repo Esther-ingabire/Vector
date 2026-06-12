@@ -3,16 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Leaf, ArrowLeft, Upload, X, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Upload, X, CheckCircle } from 'lucide-react'
+import ChainSightLogo from '../../components/ui/ChainSightLogo.jsx'
 import { authApi } from '../../api/auth.js'
 import toast from 'react-hot-toast'
 
+// Transporter accounts are created by the Cooperative Manager who contracts them.
+// MINAGRI/RAB Officer accounts are created directly by the System Administrator.
 const ROLES = [
   { value: 'COOPERATIVE_MANAGER', label: 'Cooperative Manager', docs: ['National ID', 'Cooperative Registration Certificate'] },
-  { value: 'TRANSPORTER', label: 'Transporter', docs: ["National ID", "Driver's Licence", 'Vehicle Logbook'] },
   { value: 'DISTRIBUTOR', label: 'Distributor', docs: ['National ID', 'Company Registration'] },
   { value: 'MARKET_AGENT', label: 'Market Agent', docs: ['National ID'] },
-  { value: 'MINAGRI_OFFICER', label: 'MINAGRI / RAB Officer', docs: ['National ID', 'Employment Letter'] },
 ]
 
 const DISTRICTS = [
@@ -94,9 +95,7 @@ export default function RequestAccessPage() {
     <div className="min-h-screen bg-primary-50 py-10 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary-600 mb-3">
-            <Leaf className="w-7 h-7 text-white" />
-          </div>
+          <ChainSightLogo size={56} className="logo-hover-spin mb-3 block mx-auto" />
           <h1 className="text-2xl font-bold text-gray-900">ChainSight — Request Access</h1>
           <p className="text-gray-500 text-sm mt-1">Complete the form below. An administrator will review your request.</p>
         </div>

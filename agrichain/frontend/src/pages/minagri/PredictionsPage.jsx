@@ -71,7 +71,7 @@ export default function PredictionsPage() {
           const isUp = priceChange > 0
 
           return (
-            <div key={`${p.crop}-${p.region}`} className={`card border-l-4 ${p.risk === 'high' ? 'border-l-danger-500' : p.risk === 'medium' ? 'border-l-warning-500' : 'border-l-success-500'}`}>
+            <div key={`${p.crop}-${p.region}`} className={`card border-2 ${p.risk === 'high' ? 'border-danger-500' : p.risk === 'medium' ? 'border-warning-500' : 'border-success-500'}`}>
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-2">

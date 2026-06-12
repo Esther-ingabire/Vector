@@ -41,7 +41,7 @@ export default function SetPasswordPage() {
   const onSubmit = async (data) => {
     setLoading(true)
     try {
-      await authApi.setPassword({ new_password: data.new_password })
+      await authApi.setPassword({ new_password: data.new_password, confirm_password: data.confirm_password })
       toast.success('Password set successfully. Welcome to ChainSight!')
       if (user) navigateByRole(user.role, navigate)
       else navigate('/login')

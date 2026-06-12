@@ -1,19 +1,39 @@
-export default function KPICard({ title, value, unit='', change, changeLabel, icon: Icon, color='primary' }) {
-  const colors = { primary:'border-primary-500 bg-primary-50', success:'border-success-500 bg-success-50', warning:'border-warning-500 bg-warning-50', danger:'border-danger-500 bg-danger-50' }
-  const changeColor = change > 0 ? 'text-danger-500' : change < 0 ? 'text-success-500' : 'text-gray-500'
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+
+const ACCENT = {
+  primary: { border: 'border-primary-200', bg: 'bg-primary-50',  icon: 'bg-primary-100 text-primary-600' },
+  success: { border: 'border-success-400', bg: 'bg-success-50',  icon: 'bg-success-100 text-success-600' },
+  warning: { border: 'border-warning-400', bg: 'bg-warning-50',  icon: 'bg-warning-100 text-warning-600' },
+  danger:  { border: 'border-danger-400',  bg: 'bg-danger-50',   icon: 'bg-danger-100  text-danger-600'  },
+  info:    { border: 'border-info-100',    bg: 'bg-info-50',     icon: 'bg-info-100    text-info-600'    },
+}
+
+export default function KPICard({ title, value, unit = '', change, changeLabel, icon: Icon, color = 'primary' }) {
+  const c = ACCENT[color] || ACCENT.primary
+  const positive = change > 0
+  const neutral  = change === 0 || change === undefined
+
   return (
-    <div className={`card border-l-4 ${colors[color] || colors.primary}`}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}<span className="text-lg font-normal text-gray-500 ml-1">{unit}</span></p>
+    <div className={`rounded-2xl shadow-sm border p-5 ${c.border} ${c.bg}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 truncate">{title}</p>
+          <p className="text-3xl font-bold text-gray-900 leading-none">
+            {value}
+            {unit && <span className="text-base font-normal text-gray-400 ml-1">{unit}</span>}
+          </p>
           {change !== undefined && (
-            <p className={`text-sm mt-1 ${changeColor}`}>
-              {change > 0 ? '↑' : change < 0 ? '↓' : '—'} {Math.abs(change)}% {changeLabel || 'vs last period'}
-            </p>
+            <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${positive ? 'text-danger-500' : change < 0 ? 'text-success-600' : 'text-gray-400'}`}>
+              {neutral ? <Minus className="w-3 h-3" /> : positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {!neutral && `${Math.abs(change)}%`} {changeLabel || 'vs last period'}
+            </div>
           )}
         </div>
-        {Icon && <div className="p-2 bg-white rounded-lg shadow-sm"><Icon className="w-6 h-6 text-primary-500" /></div>}
+        {Icon && (
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${c.icon}`}>
+            <Icon className="w-5 h-5" />
+          </div>
+        )}
       </div>
     </div>
   )

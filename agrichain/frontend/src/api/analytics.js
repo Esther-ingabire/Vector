@@ -21,5 +21,5 @@ export const analyticsApi = {
   // Notifications
   getNotifications: (params) => apiClient.get('/notifications/', { params }),
   markRead: (id) => apiClient.post(`/notifications/${id}/read/`),
-  markAllRead: () => apiClient.post('/notifications/mark-all-read/'),
+  markAllRead: () => apiClient.post('/notifications/mark-all-read/', {}, { _silent: true }),
 }
