@@ -1,6 +1,7 @@
-import { Bell, X, CheckCheck, AlertTriangle, Info, UserPlus, Package, Truck } from 'lucide-react'
+﻿import { Bell, X, CheckCheck, AlertTriangle, Info, UserPlus, Package, Truck, Settings, LogOut, User } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { analyticsApi } from '../../api/analytics.js'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -53,11 +54,23 @@ function mapApiNotification(n) {
   }
 }
 
+const ROLE_SETTINGS_PATH = {
+  ADMIN: '/admin/settings',
+  COOPERATIVE_MANAGER: '/cooperative/settings',
+  TRANSPORTER: '/transporter/settings',
+  DISTRIBUTOR: '/distributor/settings',
+  MARKET_AGENT: '/market-agent/settings',
+  MINAGRI_OFFICER: '/minagri/settings',
+}
+
 export default function TopBar() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
   const panelRef = useRef(null)
+  const profileRef = useRef(null)
 
   const seed = SEED_NOTIFICATIONS[user?.role] || []
   const unread = notifications.filter(n => !n.read).length
@@ -105,15 +118,16 @@ export default function TopBar() {
     return () => es.close()
   }, [user?.id])
 
-  // ── Close panel on outside click ──────────────────────────────────────────
+  // ── Close panels on outside click ─────────────────────────────────────────
   useEffect(() => {
-    if (!open) return
+    if (!open && !profileOpen) return
     const handler = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false)
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  }, [open, profileOpen])
 
   const markAllRead = () => {
     analyticsApi.markAllRead().catch(() => {})
@@ -123,11 +137,11 @@ export default function TopBar() {
   const initials = `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase()
 
   return (
-    <header className="h-14 bg-white border-b border-gray-100 flex items-center justify-between px-6 flex-shrink-0">
+    <header className="h-14 bg-white/80 backdrop-blur-xl border-b border-gray-200/50 flex items-center justify-between px-6 flex-shrink-0 sticky top-0 z-30">
       <div />
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {user?.role === 'TRANSPORTER' && (
-          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
+          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600 mr-1">
             <span className="text-gray-400">Status:</span>
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-50 border border-success-200 text-success-700 text-xs font-semibold">
               <span className="w-1.5 h-1.5 bg-success-500 rounded-full" />
@@ -140,7 +154,7 @@ export default function TopBar() {
         <div className="relative" ref={panelRef}>
           <button
             onClick={() => setOpen(o => !o)}
-            className="relative w-9 h-9 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+            className="relative w-9 h-9 flex items-center justify-center text-gray-500 hover:text-gray-700 bg-white/60 hover:bg-white border border-gray-200/70 rounded-xl transition-all backdrop-blur-sm shadow-sm"
           >
             <Bell className="w-[18px] h-[18px]" />
             {unread > 0 && (
@@ -151,7 +165,7 @@ export default function TopBar() {
           </button>
 
           {open && (
-            <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+            <div className="absolute right-0 top-11 w-80 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 z-50 overflow-hidden">
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <div className="flex items-center gap-2">
@@ -167,7 +181,7 @@ export default function TopBar() {
                       Mark all read
                     </button>
                   )}
-                  <button onClick={() => setOpen(false)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+                  <button onClick={() => setOpen(false)} className="p-1 hover:bg-gray-200/60 backdrop-blur-sm rounded-lg transition-colors">
                     <X className="w-3.5 h-3.5 text-gray-400" />
                   </button>
                 </div>
@@ -202,15 +216,74 @@ export default function TopBar() {
           )}
         </div>
 
-        {/* Avatar + name */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
-            {initials}
-          </div>
-          <div className="hidden md:block leading-tight">
-            <p className="text-sm font-semibold text-gray-800 leading-none">{user?.first_name} {user?.last_name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ')}</p>
-          </div>
+        {/* Avatar + profile dropdown */}
+        <div className="relative" ref={profileRef}>
+          <button
+            onClick={() => setProfileOpen(o => !o)}
+            className="flex items-center gap-2.5 bg-white/60 hover:bg-white border border-gray-200/70 rounded-xl px-2 py-1 transition-all backdrop-blur-sm shadow-sm"
+          >
+            {user?.avatar_url ? (
+              <img src={user.avatar_url} alt="avatar"
+                className="w-8 h-8 rounded-full object-cover border border-gray-200 flex-shrink-0" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-primary-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
+                {initials}
+              </div>
+            )}
+            <div className="hidden md:block leading-tight text-left">
+              <p className="text-sm font-semibold text-gray-800 leading-none">{user?.first_name} {user?.last_name}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{ROLE_LABELS[user?.role] || user?.role?.replace(/_/g, ' ')}</p>
+            </div>
+          </button>
+
+          {profileOpen && (
+            <div className="absolute right-0 top-11 w-64 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 z-50 overflow-hidden">
+              {/* User info header */}
+              <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100">
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="avatar"
+                    className="w-11 h-11 rounded-full object-cover border border-gray-200 flex-shrink-0" />
+                ) : (
+                  <div className="w-11 h-11 rounded-full bg-primary-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    {initials}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{user?.first_name} {user?.last_name}</p>
+                  <p className="text-xs text-gray-400 truncate">{user?.phone_number}</p>
+                  <p className="text-xs text-primary-600 font-medium mt-0.5">{ROLE_LABELS[user?.role]}</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="py-1">
+                <button
+                  onClick={() => { setProfileOpen(false); navigate(ROLE_SETTINGS_PATH[user?.role] || '/settings') }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <User className="w-4 h-4 text-gray-400" />
+                  Edit profile & photo
+                </button>
+                <button
+                  onClick={() => { setProfileOpen(false); navigate(ROLE_SETTINGS_PATH[user?.role] || '/settings') }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <Settings className="w-4 h-4 text-gray-400" />
+                  Settings
+                </button>
+              </div>
+
+              <div className="border-t border-gray-100 py-1">
+                <button
+                  onClick={() => { setProfileOpen(false); logout() }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-danger-600 hover:bg-danger-50 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Log out
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

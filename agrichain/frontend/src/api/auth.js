@@ -3,11 +3,18 @@ import apiClient from './client.js'
 export const authApi = {
   login: (data) => apiClient.post('/auth/login/', data, { _silent: true }),
   verifyOtp: (data) => apiClient.post('/auth/otp/verify/', data),
+  forgotPassword: (data) => apiClient.post('/auth/forgot-password/', data),
+  resendOtp: (data) => apiClient.post('/auth/otp/resend/', data),
   setPassword: (data) => apiClient.post('/auth/set-password/', data),
   refreshToken: (data) => apiClient.post('/auth/token/refresh/', data),
   requestAccess: (data) => apiClient.post('/auth/request-access/', data),
   me: () => apiClient.get('/auth/me/'),
   updateProfile: (data) => apiClient.patch('/auth/me/', data),
+  uploadAvatar: (file) => {
+    const form = new FormData()
+    form.append('avatar', file)
+    return apiClient.patch('/auth/me/avatar/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
   logout: () => { localStorage.clear() },
 
   // Admin only

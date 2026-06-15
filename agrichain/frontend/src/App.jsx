@@ -4,6 +4,7 @@
  */
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext.jsx'
+import { ThemeProvider } from './context/ThemeContext.jsx'
 import ProtectedRoute from './components/layout/ProtectedRoute.jsx'
 import PublicRoute from './components/layout/PublicRoute.jsx'
 
@@ -15,6 +16,7 @@ import LoginPage from './pages/auth/LoginPage.jsx'
 import OTPPage from './pages/auth/OTPPage.jsx'
 import SetPasswordPage from './pages/auth/SetPasswordPage.jsx'
 import RequestAccessPage from './pages/auth/RequestAccessPage.jsx'
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage.jsx'
 
 // Role dashboards
 import AdminLayout from './pages/admin/AdminLayout.jsx'
@@ -29,36 +31,27 @@ import MarketAgentLayout from './pages/market_agent/MarketAgentLayout.jsx'
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        {/* Landing page */}
-        <Route path="/" element={<LandingPage />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
 
-        {/* Public routes */}
-        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-        <Route path="/verify-otp" element={<PublicRoute><OTPPage /></PublicRoute>} />
-        <Route path="/set-password" element={<ProtectedRoute><SetPasswordPage /></ProtectedRoute>} />
-        <Route path="/request-access" element={<PublicRoute><RequestAccessPage /></PublicRoute>} />
+          <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+          <Route path="/verify-otp" element={<PublicRoute><OTPPage /></PublicRoute>} />
+          <Route path="/set-password" element={<ProtectedRoute><SetPasswordPage /></ProtectedRoute>} />
+          <Route path="/request-access" element={<PublicRoute><RequestAccessPage /></PublicRoute>} />
+          <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
 
-        {/* Admin dashboard */}
-        <Route path="/admin/*" element={<ProtectedRoute roles={['ADMIN']}><AdminLayout /></ProtectedRoute>} />
+          <Route path="/admin/*" element={<ProtectedRoute roles={['ADMIN']}><AdminLayout /></ProtectedRoute>} />
+          <Route path="/cooperative/*" element={<ProtectedRoute roles={['COOPERATIVE_MANAGER']}><CooperativeLayout /></ProtectedRoute>} />
+          <Route path="/distributor/*" element={<ProtectedRoute roles={['DISTRIBUTOR']}><DistributorLayout /></ProtectedRoute>} />
+          <Route path="/minagri/*" element={<ProtectedRoute roles={['MINAGRI_OFFICER']}><MinagriLayout /></ProtectedRoute>} />
+          <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER']}><TransporterLayout /></ProtectedRoute>} />
+          <Route path="/market-agent/*" element={<ProtectedRoute roles={['MARKET_AGENT']}><MarketAgentLayout /></ProtectedRoute>} />
 
-        {/* Cooperative Manager dashboard */}
-        <Route path="/cooperative/*" element={<ProtectedRoute roles={['COOPERATIVE_MANAGER']}><CooperativeLayout /></ProtectedRoute>} />
-
-        {/* Distributor dashboard */}
-        <Route path="/distributor/*" element={<ProtectedRoute roles={['DISTRIBUTOR']}><DistributorLayout /></ProtectedRoute>} />
-
-        {/* MINAGRI Officer dashboard */}
-        <Route path="/minagri/*" element={<ProtectedRoute roles={['MINAGRI_OFFICER']}><MinagriLayout /></ProtectedRoute>} />
-
-        {/* Field roles — primarily mobile app, but web fallback available */}
-        <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER']}><TransporterLayout /></ProtectedRoute>} />
-        <Route path="/market-agent/*" element={<ProtectedRoute roles={['MARKET_AGENT']}><MarketAgentLayout /></ProtectedRoute>} />
-
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

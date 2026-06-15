@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { X, MessageSquare, HelpCircle, Star, Send, CheckCircle, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { feedbackApi } from '../../api/feedback.js'
@@ -50,7 +50,7 @@ export default function FeedbackModal({ mode = 'feedback', onClose }) {
               <p className="text-xs text-gray-400">{isFeedback ? 'Tell us what you think' : "We're here to help"}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-xl transition-colors">
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-200/60 backdrop-blur-sm rounded-xl transition-colors">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>

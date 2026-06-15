@@ -99,12 +99,34 @@ def register_transporter(request):
     except Exception:
         return Response({'detail': 'No cooperative profile found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    data = {**request.data, 'role': 'TRANSPORTER'}
+    import re
+    from django.db import IntegrityError
+
+    phone = request.data.get('phone_number', '')
+    digits = re.sub(r'\D', '', phone)[-8:] or secrets.token_hex(4)
+    base_username = request.data.get('username') or f'trans.{digits}'
+    # Ensure username is unique by appending a suffix if needed
+    username = base_username
+    suffix = 1
+    from apps.authentication.models import User as _User
+    while _User.objects.filter(username=username).exists():
+        username = f'{base_username}.{suffix}'
+        suffix += 1
+
+    data = {**request.data, 'role': 'TRANSPORTER', 'username': username}
     serializer = UserCreateSerializer(data=data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    user = serializer.save()
+    try:
+        user = serializer.save()
+    except IntegrityError as e:
+        err = str(e)
+        if 'phone_number' in err:
+            return Response({'phone_number': ['A user with this phone number already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        if 'email' in err:
+            return Response({'email': ['A user with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'detail': 'Could not create user — a duplicate entry exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
     operating_districts = request.data.get('operating_districts', [coop.district] if coop.district else ['Kigali'])
     if isinstance(operating_districts, str):
@@ -136,6 +158,7 @@ def register_transporter(request):
     return Response({
         'message': f'Transporter {user.get_full_name()} registered. OTP sent to {user.email or user.phone_number}.',
         'user_id': user.id,
+        'otp_code': otp_code,  # shown in dev so manager can manually share it
     }, status=status.HTTP_201_CREATED)
 
 

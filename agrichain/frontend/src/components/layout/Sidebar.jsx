@@ -13,9 +13,9 @@ export default function Sidebar({ navItems, title }) {
 
   return (
     <>
-      <aside className="w-60 min-h-screen bg-primary-900 text-white flex flex-col flex-shrink-0">
+      <aside className="w-60 min-h-screen bg-primary-900/95 backdrop-blur-xl text-white flex flex-col flex-shrink-0">
         {/* Brand */}
-        <div className="px-5 py-5 flex items-center gap-3 border-b border-primary-700/60">
+        <div className="px-5 py-5 flex items-center gap-3 border-b border-white/10">
           <ChainSightLogo size={32} className="flex-shrink-0 opacity-90" />
           <div className="min-w-0">
             <p className="text-sm font-bold text-white leading-none">ChainSight</p>
@@ -25,23 +25,33 @@ export default function Sidebar({ navItems, title }) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {navItems.map(item => (
-            <NavLink key={item.to} to={item.to} end={!!item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-white text-primary-700 shadow-sm'
-                    : 'text-primary-200 hover:bg-primary-700/60 hover:text-white'
-                }`
-              }>
-              {item.icon && <item.icon className="w-4 h-4 flex-shrink-0" />}
-              <span className="truncate">{item.label}</span>
-            </NavLink>
-          ))}
+          {navItems.map((item, i) =>
+            item.divider
+              ? (
+                <div key={`div-${i}`} className="pt-3 pb-1 px-2">
+                  <p className="text-[10px] font-semibold text-primary-400 uppercase tracking-widest">
+                    {item.label}
+                  </p>
+                </div>
+              )
+              : (
+                <NavLink key={item.to} to={item.to} end={!!item.end}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-white/15 text-white border border-white/20 shadow-sm'
+                        : 'text-primary-200 hover:bg-white/10 hover:text-white'
+                    }`
+                  }>
+                  {item.icon && <item.icon className="w-4 h-4 flex-shrink-0" />}
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              )
+          )}
         </nav>
 
         {/* User footer */}
-        <div className="px-3 pb-4 pt-3 border-t border-primary-700/60 space-y-1">
+        <div className="px-3 pb-4 pt-3 border-t border-white/10 space-y-1">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
             <div className="w-7 h-7 rounded-lg bg-primary-500 flex items-center justify-center text-xs font-bold flex-shrink-0">
               {initials}
@@ -54,7 +64,7 @@ export default function Sidebar({ navItems, title }) {
 
           <button
             onClick={() => setFeedbackOpen(true)}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-primary-700/60 hover:text-white transition-colors"
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-white/10 hover:text-white transition-colors"
           >
             {isAdmin
               ? <><MessageSquare className="w-4 h-4 flex-shrink-0" />Send Feedback</>
@@ -64,7 +74,7 @@ export default function Sidebar({ navItems, title }) {
 
           <button
             onClick={logout}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-primary-700/60 hover:text-white transition-colors"
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-white/10 hover:text-white transition-colors"
           >
             <LogOut className="w-4 h-4 flex-shrink-0" />
             Sign out

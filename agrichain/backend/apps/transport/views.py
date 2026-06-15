@@ -67,24 +67,31 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        status_filter = self.request.query_params.get('status')
+
         if user.role == 'TRANSPORTER':
             try:
-                return TransportRequest.objects.filter(transporter=user.transporter_profile)
+                qs = TransportRequest.objects.filter(transporter=user.transporter_profile)
             except Transporter.DoesNotExist:
                 return TransportRequest.objects.none()
-        if user.role == 'COOPERATIVE_MANAGER':
+        elif user.role == 'COOPERATIVE_MANAGER':
             try:
-                return TransportRequest.objects.filter(requested_by_cooperative=user.cooperative)
+                qs = TransportRequest.objects.filter(requested_by_cooperative=user.cooperative)
             except Exception:
                 return TransportRequest.objects.none()
-        if user.role == 'DISTRIBUTOR':
+        elif user.role == 'DISTRIBUTOR':
             try:
-                return TransportRequest.objects.filter(requested_by_distributor=user.distributor_profile)
+                qs = TransportRequest.objects.filter(requested_by_distributor=user.distributor_profile)
             except Exception:
                 return TransportRequest.objects.none()
-        if user.role in ('ADMIN', 'MINAGRI_OFFICER'):
-            return TransportRequest.objects.all()
-        return TransportRequest.objects.none()
+        elif user.role in ('ADMIN', 'MINAGRI_OFFICER'):
+            qs = TransportRequest.objects.all()
+        else:
+            return TransportRequest.objects.none()
+
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+        return qs
 
     @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
     def accept(self, request, pk=None):

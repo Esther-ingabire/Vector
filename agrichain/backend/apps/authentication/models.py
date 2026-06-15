@@ -32,6 +32,8 @@ class User(AbstractUser):
     # Override email to be required
     email = models.EmailField(unique=True, null=True, blank=True)
 
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
+
     role = models.CharField(max_length=30, choices=Role.choices)
     phone_number = models.CharField(max_length=20, unique=True)
     organization_name = models.CharField(max_length=200, blank=True)

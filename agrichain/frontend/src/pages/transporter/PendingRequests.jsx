@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Clock, MapPin } from 'lucide-react'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
@@ -39,13 +39,13 @@ function RequestCard({ req, onAction, acting }) {
         <button
           onClick={() => onAction(req, 'accept')}
           disabled={!!acting}
-          className="py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+          className="py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-60">
           {acting === `${req.id}-accept` ? 'Accepting…' : 'Accept'}
         </button>
         <button
           onClick={() => onAction(req, 'decline')}
           disabled={!!acting}
-          className="py-2.5 rounded-xl border-2 border-danger-500 text-danger-500 hover:bg-danger-50 text-sm font-semibold transition-colors disabled:opacity-60">
+          className="py-2.5 rounded-xl border border-danger-400/60 text-danger-600 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm text-sm font-semibold transition-colors disabled:opacity-60">
           {acting === `${req.id}-decline` ? 'Declining…' : 'Decline'}
         </button>
       </div>

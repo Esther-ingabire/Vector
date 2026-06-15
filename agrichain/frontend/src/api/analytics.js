@@ -1,25 +1,54 @@
 import apiClient from './client.js'
 
 export const analyticsApi = {
-  // National KPIs (MINAGRI)
+  // National KPIs — snapshot tables (nightly job)
   getNationalKPIs: (params) => apiClient.get('/analytics/national/', { params }),
   getDistrictKPIs: (params) => apiClient.get('/analytics/districts/', { params }),
 
+  // MINAGRI live-compute endpoints
+  getMinagriExecutive:   ()       => apiClient.get('/analytics/minagri/executive/'),
+  getMinagriDistricts:   ()       => apiClient.get('/analytics/minagri/districts/'),
+  getMinagriLossTrend:   ()       => apiClient.get('/analytics/minagri/loss-trend/'),
+  getMinagriBottlenecks: ()       => apiClient.get('/analytics/minagri/bottlenecks/'),
+  getMinagriAlerts:      ()       => apiClient.get('/analytics/minagri/notifications/'),
+
+  // Distribution analytics (live)
+  getDistributionAnalytics: ()    => apiClient.get('/analytics/distribution/'),
+
   // AI Insights
-  getDailyBrief: () => apiClient.get('/ai-insights/daily-brief/'),
-  getInsights: (params) => apiClient.get('/ai-insights/', { params }),
+  getDailyBrief: ()               => apiClient.get('/ai-insights/daily-brief/'),
+  getInsights:   (params)         => apiClient.get('/ai-insights/', { params }),
 
   // Reports
-  getReports: (params) => apiClient.get('/reports/', { params }),
-  requestReport: (data) => apiClient.post('/reports/generate/', data),
-  downloadReport: (id) => apiClient.get(`/reports/${id}/download/`, { responseType: 'blob' }),
+  getReports:    (params)         => apiClient.get('/reports/', { params }),
+  requestReport: (data)           => apiClient.post('/reports/generate/', data),
+  downloadReport:(id)             => apiClient.get(`/reports/${id}/download/`, { responseType: 'blob' }),
+
+  // CSV export (role-aware, immediate download)
+  // params: { report_type: 'batches' | 'stock' | 'jobs' | ... }
+  exportReport: (params)          => apiClient.get('/reports/export/', { params, responseType: 'blob' }),
 
   // Loss prediction
-  getPredictions: (params) => apiClient.get('/predictions/', { params }),
-  getOrderRiskAdvisory: (orderId) => apiClient.get(`/predictions/order/${orderId}/advisory/`),
+  getPredictions: (params)        => apiClient.get('/predictions/', { params }),
+  getHighRiskPredictions: ()      => apiClient.get('/predictions/high_risk/'),
 
   // Notifications
-  getNotifications: (params) => apiClient.get('/notifications/', { params }),
-  markRead: (id) => apiClient.post(`/notifications/${id}/read/`),
-  markAllRead: () => apiClient.post('/notifications/mark-all-read/', {}, { _silent: true }),
+  getNotifications: (params)      => apiClient.get('/notifications/', { params }),
+  markRead:    (id)               => apiClient.post(`/notifications/${id}/read/`),
+  markAllRead: ()                 => apiClient.post('/notifications/mark-all-read/', {}, { _silent: true }),
+}
+
+/**
+ * Triggers a browser download from a blob response.
+ * Usage: triggerDownload(response, 'my_report.csv')
+ */
+export function triggerDownload(blobResponse, filename = 'report.csv') {
+  const url = URL.createObjectURL(new Blob([blobResponse.data]))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  URL.revokeObjectURL(url)
+  document.body.removeChild(a)
 }

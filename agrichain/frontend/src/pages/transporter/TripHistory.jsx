@@ -53,21 +53,21 @@ export default function TripHistory() {
         <div className="card flex items-center gap-4 border-2 border-primary-500">
           <Truck className="w-6 h-6 text-primary-500" />
           <div>
-            <p className="text-xl font-bold">{loading ? '…' : trips.length}</p>
+            <p className="text-xl font-bold text-gray-900">{loading ? '…' : trips.length}</p>
             <p className="text-sm text-gray-500">Total trips</p>
           </div>
         </div>
         <div className="card flex items-center gap-4 border-2 border-success-500">
           <CheckCircle className="w-6 h-6 text-success-500" />
           <div>
-            <p className="text-xl font-bold">{loading ? '…' : `${(totalKg / 1000).toFixed(1)} t`}</p>
+            <p className="text-xl font-bold text-gray-900">{loading ? '…' : `${(totalKg / 1000).toFixed(1)} t`}</p>
             <p className="text-sm text-gray-500">Total delivered</p>
           </div>
         </div>
         <div className="card flex items-center gap-4 border-2 border-warning-500">
           <AlertTriangle className="w-6 h-6 text-warning-500" />
           <div>
-            <p className="text-xl font-bold">{loading ? '…' : breachCount}</p>
+            <p className="text-xl font-bold text-gray-900">{loading ? '…' : breachCount}</p>
             <p className="text-sm text-gray-500">Cold chain breaches</p>
           </div>
         </div>

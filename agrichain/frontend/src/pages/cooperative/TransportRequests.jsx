@@ -96,16 +96,22 @@ export default function TransportRequests() {
     e.preventDefault()
     setSaving(true)
     try {
-      await cooperativesApi.registerTransporter(tForm)
-      toast.success('Transporter registered — OTP sent to activate their account')
+      const res = await cooperativesApi.registerTransporter(tForm)
+      const otp = res.data?.otp_code
+      if (otp) {
+        toast.success(`Transporter registered! Share this OTP with them to activate: ${otp}`, { duration: 12000 })
+      } else {
+        toast.success('Transporter registered — OTP sent to activate their account')
+      }
       // Refresh transporters list
-      const res = await cooperativesApi.getMyTransporters()
-      setTransporters(res.data?.results ?? res.data ?? [])
+      const tRes = await cooperativesApi.getMyTransporters()
+      setTransporters(tRes.data?.results ?? tRes.data ?? [])
       setShowRegister(false)
       setTForm(BLANK_TRANSPORTER)
     } catch (err) {
-      const msg = err.response?.data
-        ? Object.values(err.response.data).flat().join(' ')
+      const data = err.response?.data
+      const msg = data
+        ? Object.values(data).flat().join(' ')
         : 'Failed to register transporter'
       toast.error(msg)
     } finally {

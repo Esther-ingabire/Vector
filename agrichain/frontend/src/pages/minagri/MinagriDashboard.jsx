@@ -1,108 +1,216 @@
-import { Link } from 'react-router-dom'
-import { TrendingUp, TrendingDown, AlertTriangle, Package, Truck, BarChart2, MapPin } from 'lucide-react'
-import KPICard from '../../components/ui/KPICard.jsx'
-import { useAuth } from '../../context/AuthContext.jsx'
-import RiskBadge from '../../components/ui/RiskBadge.jsx'
+﻿import { useEffect, useState } from 'react'
+import {
+  Chart as ChartJS, CategoryScale, LinearScale,
+  PointElement, LineElement, BarElement, Tooltip, Legend,
+} from 'chart.js'
+import { Line, Bar } from 'react-chartjs-2'
+import { TrendingDown, TrendingUp, Package, AlertTriangle, MapPin, FileText, Loader } from 'lucide-react'
+import { analyticsApi } from '../../api/analytics.js'
 
-const NATIONAL_KPI = [
-  { title: 'Total produce tracked (tons)', value: '12,450', trend: '+8.2%', up: true },
-  { title: 'Active cooperatives', value: '47', trend: '+3', up: true },
-  { title: 'Active batches', value: '128', trend: '-5', up: false },
-  { title: 'Open risk alerts', value: '6', trend: '+2', up: false },
-]
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend)
 
-const REGIONAL_DATA = [
-  { region: 'Kigali', produce_tons: 3200, cooperatives: 8, risk: 'low' },
-  { region: 'Northern (Musanze)', produce_tons: 4100, cooperatives: 12, risk: 'low' },
-  { region: 'Southern (Huye)', produce_tons: 2800, cooperatives: 11, risk: 'medium' },
-  { region: 'Eastern (Rwamagana)', produce_tons: 1950, cooperatives: 9, risk: 'low' },
-  { region: 'Western (Rubavu)', produce_tons: 400, cooperatives: 7, risk: 'high' },
-]
+function lossBarColor(pct) {
+  if (pct >= 13) return 'bg-danger-500'
+  if (pct >= 10) return 'bg-warning-400'
+  return 'bg-success-500'
+}
 
-const RECENT_ALERTS = [
-  { id: 1, type: 'Cold chain breach', region: 'Huye', severity: 'high', time: '2h ago' },
-  { id: 2, type: 'Price spike — Tomatoes', region: 'Kigali', severity: 'medium', time: '4h ago' },
-  { id: 3, type: 'Supply shortage forecast', region: 'Western Province', severity: 'medium', time: '6h ago' },
-]
+const lineOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => ` ${ctx.raw}%` } },
+  },
+  scales: {
+    y: {
+      min: 0, max: 20,
+      grid: { color: '#f1f5f9' },
+      ticks: { callback: v => `${v}%`, font: { size: 11 } },
+    },
+    x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+  },
+}
+
+const barOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { callbacks: { label: ctx => ` ${ctx.raw}% loss` } },
+  },
+  scales: {
+    y: {
+      min: 0, max: 20,
+      grid: { color: '#f1f5f9' },
+      ticks: { callback: v => `${v}%`, font: { size: 11 } },
+    },
+    x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+  },
+}
 
 export default function MinagriDashboard() {
-  const { user } = useAuth()
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    analyticsApi.getMinagriExecutive()
+      .then(r => setData(r.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const kpis = {
+    loss_rate_pct:            data?.loss_rate_pct            ?? '—',
+    total_volume_tons:        data?.total_volume_tons        ?? '—',
+    high_risk_districts:      data?.high_risk_districts      ?? '—',
+    cold_chain_compliance_pct:data?.cold_chain_compliance_pct ?? '—',
+  }
+
+  const districts = data?.district_loss ?? []
+  const trend     = data?.monthly_trend  ?? []
+  const topCrops  = data?.top_loss_crops ?? []
+
+  const lineData = {
+    labels: trend.map(m => m.month),
+    datasets: [{
+      label: 'Loss %',
+      data: trend.map(m => m.loss_pct),
+      borderColor: '#c0392b',
+      backgroundColor: 'rgba(192,57,43,0.06)',
+      pointBackgroundColor: '#c0392b',
+      pointRadius: 4,
+      tension: 0.3,
+      fill: false,
+    }],
+  }
+
+  const barData = {
+    labels: topCrops.map(c => c.crop),
+    datasets: [{
+      label: 'Loss %',
+      data: topCrops.map(c => c.loss_pct),
+      backgroundColor: '#2d6a4f',
+      borderRadius: 4,
+    }],
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-400">
+        <Loader className="w-6 h-6 animate-spin mr-2" /> Loading dashboard…
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      {/* Banner */}
-      <div className="card bg-gradient-to-r from-primary-700 to-primary-900 text-white">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-primary-200 text-sm">National Overview</p>
-            <h1 className="text-2xl font-bold mt-0.5">Agricultural Supply Chain Monitor</h1>
-            <p className="text-primary-200 text-sm mt-1">MINAGRI · Rwanda · {new Date().toLocaleDateString('en-RW', { month: 'long', year: 'numeric' })}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-primary-200 text-sm">Signed in as</p>
-            <p className="font-semibold">{user?.first_name || 'Officer'} {user?.last_name || ''}</p>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">MINAGRI Officer Dashboard</h1>
+        <p className="text-sm text-gray-500 mt-0.5">National agricultural supply chain overview · Rwanda</p>
       </div>
 
-      {/* National KPIs */}
+      {/* 4 KPI cards */}
       <div className="grid grid-cols-4 gap-4">
-        {NATIONAL_KPI.map(k => (
-          <div key={k.title} className="card">
-            <p className="text-xs text-gray-500 mb-2">{k.title}</p>
-            <p className="text-2xl font-bold text-gray-900">{k.value}</p>
-            <div className={`flex items-center gap-1 text-xs font-medium mt-1 ${k.up ? 'text-success-500' : 'text-danger-500'}`}>
-              {k.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-              {k.trend} vs last month
-            </div>
+        <div className="card border-2 border-danger-400">
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <TrendingDown className="w-3.5 h-3.5 text-danger-500" /> National Loss Rate
           </div>
-        ))}
+          <p className="text-3xl font-bold text-danger-500">
+            {kpis.loss_rate_pct !== '—' ? `${kpis.loss_rate_pct}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Across all recorded batches</p>
+        </div>
+        <div className="card border-2 border-primary-500">
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <Package className="w-3.5 h-3.5 text-primary-600" /> Total Volume Tracked
+          </div>
+          <p className="text-3xl font-bold text-primary-700">
+            {kpis.total_volume_tons !== '—' ? kpis.total_volume_tons.toLocaleString() : '—'}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">tons dispatched (all-time)</p>
+        </div>
+        <div className="card border-2 border-warning-400">
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-warning-500" /> High-Risk Districts
+          </div>
+          <p className="text-3xl font-bold text-warning-500">{kpis.high_risk_districts}</p>
+          <p className="text-xs text-gray-400 mt-1">Loss rate ≥ 10%</p>
+        </div>
+        <div className="card border-2 border-success-500">
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <TrendingUp className="w-3.5 h-3.5 text-success-600" /> Cold Chain Compliance
+          </div>
+          <p className="text-3xl font-bold text-success-600">
+            {kpis.cold_chain_compliance_pct !== '—' ? `${kpis.cold_chain_compliance_pct}%` : '—'}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Across all facilities</p>
+        </div>
       </div>
 
+      {/* National Loss Trend */}
+      <div className="card">
+        <h2 className="font-semibold text-gray-900 mb-1">National Loss Trend (Last 6 Months)</h2>
+        <p className="text-xs text-gray-400 mb-4">Average total loss % per batch by dispatch month</p>
+        <div className="h-56">
+          {trend.length > 0
+            ? <Line data={lineData} options={lineOptions} />
+            : <div className="flex items-center justify-center h-full text-sm text-gray-400">No trend data yet</div>
+          }
+        </div>
+      </div>
+
+      {/* District Heatmap + Top Loss Crops */}
       <div className="grid grid-cols-2 gap-6">
-        {/* Regional breakdown */}
         <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-700">Regional breakdown</h2>
-            <Link to="/minagri/reports" className="text-sm text-primary-600 hover:underline">Full report</Link>
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin className="w-4 h-4 text-primary-600" />
+            <h2 className="font-semibold text-gray-900">District Loss Heatmap</h2>
           </div>
-          <div className="space-y-0">
-            {REGIONAL_DATA.map(r => (
-              <div key={r.region} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-3 h-3 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">{r.region}</span>
+          {districts.length > 0 ? (
+            <div className="space-y-3">
+              {districts.map(d => (
+                <div key={d.district} className="flex items-center gap-3">
+                  <span className="w-20 text-sm text-gray-700 font-medium shrink-0 truncate">{d.district}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full ${lossBarColor(d.loss_pct)} transition-all`}
+                      style={{ width: `${Math.min(100, (d.loss_pct / 20) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-12 text-right text-sm font-semibold text-gray-700 shrink-0">
+                    {d.loss_pct}%
+                  </span>
                 </div>
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="text-gray-500">{r.produce_tons.toLocaleString()} tons</span>
-                  <span className="text-gray-400">{r.cooperatives} coops</span>
-                  <RiskBadge risk={r.risk} />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No district data available</p>
+          )}
         </div>
 
-        {/* Recent alerts */}
         <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-700">Recent alerts</h2>
-            <Link to="/minagri/alerts" className="text-sm text-primary-600 hover:underline">All alerts</Link>
-          </div>
-          <div className="space-y-3">
-            {RECENT_ALERTS.map(a => (
-              <div key={a.id} className={`p-3 rounded-xl border-l-4 ${a.severity === 'high' ? 'bg-danger-50 border-l-danger-500' : 'bg-warning-50 border-l-warning-500'}`}>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className={`text-sm font-medium ${a.severity === 'high' ? 'text-danger-500' : 'text-warning-500'}`}>{a.type}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" />{a.region}</p>
-                  </div>
-                  <span className="text-xs text-gray-400">{a.time}</span>
-                </div>
-              </div>
-            ))}
+          <h2 className="font-semibold text-gray-900 mb-4">Top Loss Crops</h2>
+          <div className="h-48">
+            {topCrops.length > 0
+              ? <Bar data={barData} options={barOptions} />
+              : <div className="flex items-center justify-center h-full text-sm text-gray-400">No crop data available</div>
+            }
           </div>
         </div>
+      </div>
+
+      {/* Info footer */}
+      <div className="card bg-primary-50 border border-primary-100">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-primary-600" />
+          <h2 className="font-semibold text-gray-900">Data Source</h2>
+        </div>
+        <p className="text-sm text-gray-600 mt-1">
+          All figures are computed live from the ChainSight database. Loss rates reflect batches with completed
+          handovers. Navigate to <strong>Pre-Generated Reports</strong> or <strong>Custom Reports</strong> to download
+          detailed exports.
+        </p>
       </div>
     </div>
   )

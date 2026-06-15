@@ -1,7 +1,7 @@
 from .base import *
 
 DEBUG = True
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['*']
 
 # Real SMTP email — credentials loaded from .env via base.py
 # EMAIL_BACKEND stays as smtp.EmailBackend (set in base.py)

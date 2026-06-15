@@ -105,14 +105,30 @@ class AccessRequestAdminSerializer(serializers.ModelSerializer):
         model  = AccessRequest
         fields = "__all__"
     def get_documents(self, obj):
-        return [{"id": d.id, "type": d.document_type, "url": d.file.url} for d in obj.documents.all()]
+        request = self.context.get('request')
+        docs = []
+        for d in obj.documents.all():
+            url = d.file.url if d.file else None
+            if url and request:
+                url = request.build_absolute_uri(url)
+            docs.append({"id": d.id, "type": d.document_type, "url": url})
+        return docs
 
 
 class UserSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.SerializerMethodField()
+
     class Meta:
         model  = User
-        fields = ["id","username","first_name","last_name","email","phone_number","role","organization_name","district","language_preference","is_active","is_verified","must_change_password","mfa_enabled","created_at"]
-        read_only_fields = ["id","role","is_verified","must_change_password","created_at"]
+        fields = ["id","username","first_name","last_name","email","phone_number","role","organization_name","district","language_preference","is_active","is_verified","must_change_password","mfa_enabled","created_at","avatar_url"]
+        read_only_fields = ["id","role","is_verified","must_change_password","created_at","avatar_url"]
+
+    def get_avatar_url(self, obj):
+        if not obj.avatar:
+            return None
+        request = self.context.get('request')
+        url = obj.avatar.url
+        return request.build_absolute_uri(url) if request else url
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

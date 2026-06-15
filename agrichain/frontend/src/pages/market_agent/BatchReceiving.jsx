@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Package, CheckCircle, AlertTriangle, QrCode, Snowflake } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import toast from 'react-hot-toast'
@@ -46,7 +46,7 @@ export default function BatchReceiving() {
           </div>
         ) : (
           incoming.map(b => (
-            <div key={b.id} className="card border-2 border-primary-500">
+            <div key={b.id} className="card">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-mono text-gray-400 mb-1">{b.id}</p>

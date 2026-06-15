@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+﻿import { Routes, Route, Navigate } from 'react-router-dom'
 import { LayoutDashboard, Users, ClipboardList, FileText, Activity, Megaphone, Settings, Inbox } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
@@ -46,3 +46,4 @@ export default function AdminLayout() {
     </div>
   )
 }
+

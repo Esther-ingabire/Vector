@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+﻿import { Link } from 'react-router-dom'
 import {
   ArrowRight, CheckCircle, AlertTriangle,
   Thermometer, TrendingDown, Zap,
@@ -46,21 +46,21 @@ export default function LandingPage() {
           </Link>
 
           {/* Centre nav links */}
-          <nav className="hidden lg:flex items-center gap-8 text-sm font-medium">
-            <a href="#about"     className="text-white/55 hover:text-white transition-colors">About</a>
-            <a href="#platform"  className="text-white/55 hover:text-white transition-colors">Platform</a>
-            <a href="#analytics" className="text-white/55 hover:text-white transition-colors">Analytics</a>
-            <a href="#access"    className="text-white/55 hover:text-white transition-colors">Access</a>
+          <nav className="hidden lg:flex items-center gap-1 text-sm font-medium bg-white/8 backdrop-blur-sm border border-white/15 rounded-full px-2 py-1.5">
+            <a href="#about"     className="px-4 py-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all">About</a>
+            <a href="#platform"  className="px-4 py-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all">Platform</a>
+            <a href="#analytics" className="px-4 py-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all">Analytics</a>
+            <a href="#access"    className="px-4 py-1 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-all">Access</a>
           </nav>
 
           {/* Right actions */}
           <div className="flex items-center gap-2 shrink-0">
             <Link to="/login"
-              className="hidden sm:inline-flex h-9 px-5 rounded-lg text-sm font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-all">
+              className="hidden sm:inline-flex items-center h-9 px-5 rounded-full text-sm font-semibold text-white/70 hover:text-white bg-white/8 hover:bg-white/15 border border-white/15 hover:border-white/25 backdrop-blur-sm transition-all">
               Sign in
             </Link>
             <Link to="/request-access"
-              className="inline-flex items-center gap-1.5 h-9 px-5 rounded-lg text-sm font-semibold bg-primary-500 hover:bg-primary-600 text-white shadow transition-all">
+              className="inline-flex items-center gap-1.5 h-9 px-5 rounded-full text-sm font-semibold bg-emerald-500/80 hover:bg-emerald-500 text-white border border-emerald-400/40 hover:border-emerald-400/60 backdrop-blur-sm shadow-lg shadow-emerald-900/30 transition-all">
               Request access <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
@@ -108,18 +108,6 @@ export default function LandingPage() {
               style={{ maxWidth: '22rem' }}>
               Integrating data from production, storage, transport and market distribution to reduce post-harvest losses and support data-driven agricultural decisions.
             </p>
-
-            {/* CTAs */}
-            <div className="flex items-center gap-3 mb-8">
-              <Link to="/login"
-                className="inline-flex items-center gap-2 h-12 px-8 rounded-xl bg-primary-400 hover:bg-primary-300 text-primary-900 font-black text-sm shadow-lg transition-all">
-                Sign in <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link to="/request-access"
-                className="inline-flex items-center h-12 px-8 rounded-xl border border-white/25 text-white font-semibold text-sm hover:bg-white/10 transition-all">
-                Request access
-              </Link>
-            </div>
 
             {/* Map legend — inline, below the buttons, no collision */}
             <div className="flex items-center gap-5">
@@ -300,20 +288,10 @@ export default function LandingPage() {
             })}
           </div>
 
-          {/* Note on access + CTAs */}
-          <p className="text-white/35 text-sm mb-7">
+          {/* Note on access */}
+          <p className="text-white/35 text-sm">
             Access is granted by a verified System Administrator following document review.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <Link to="/request-access"
-              className="inline-flex items-center gap-2 h-12 px-8 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-bold text-sm shadow-lg transition-all">
-              Request access <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link to="/login"
-              className="inline-flex items-center h-12 px-8 rounded-xl border border-white/25 text-white/70 font-semibold text-sm hover:border-white/50 hover:text-white transition-all">
-              Sign in
-            </Link>
-          </div>
         </div>
       </section>
 

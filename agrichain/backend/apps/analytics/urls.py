@@ -11,4 +11,10 @@ router.register(r'delivery-comparison', views.DeliveryMethodComparisonViewSet, b
 urlpatterns = [
     path('', include(router.urls)),
     path('distribution/', views.DistributionAnalyticsView.as_view()),
+    # MINAGRI live-compute endpoints
+    path('minagri/executive/', views.MinagriExecutiveDashboardView.as_view(), name='minagri-executive'),
+    path('minagri/districts/', views.MinagriDistrictPerformanceView.as_view(), name='minagri-districts'),
+    path('minagri/loss-trend/', views.MinagriLossTrendView.as_view(), name='minagri-loss-trend'),
+    path('minagri/bottlenecks/', views.MinagriBottleneckView.as_view(), name='minagri-bottlenecks'),
+    path('minagri/notifications/', views.MinagriNotificationsView.as_view(), name='minagri-notifications'),
 ]

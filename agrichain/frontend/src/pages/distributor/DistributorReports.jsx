@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js'
 import { Download, FileText, FileSpreadsheet, TrendingDown, Package, Truck, ShoppingCart, Printer } from 'lucide-react'
@@ -255,12 +255,12 @@ export default function DistributorReports() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="card border-2 border-warning-400">
+              <div className="card">
                 <p className="text-xs text-gray-500 mb-1">Avg Self-Collection Loss</p>
                 <p className="text-3xl font-bold text-warning-500">{avgSelfLoss}%</p>
                 <p className="text-xs text-gray-400 mt-1">Across all market agents</p>
               </div>
-              <div className="card border-2 border-primary-600">
+              <div className="card">
                 <p className="text-xs text-gray-500 mb-1">Avg Transporter Loss</p>
                 <p className="text-3xl font-bold text-primary-700">{avgTransLoss}%</p>
                 <p className="text-xs text-gray-400 mt-1">Across all market agents</p>

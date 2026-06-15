@@ -1,61 +1,65 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { ShoppingCart, Truck, Package, TrendingDown, Search, ChevronRight, Bell } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { distributionApi } from '../../api/distribution.js'
 import { cooperativesApi } from '../../api/cooperatives.js'
-import StatusBadge from '../../components/ui/StatusBadge.jsx'
 
 const CROP_IMAGES = {
-  coffee:   'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=160&fit=crop',
-  tea:      'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=160&fit=crop',
-  maize:    'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=160&fit=crop',
-  potatoes: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=160&fit=crop',
-  beans:    'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=160&fit=crop',
-  avocados: 'https://images.unsplash.com/photo-1523049673857-eb18f1dca2aa?w=400&h=160&fit=crop',
-  tomatoes: 'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=160&fit=crop',
-  default:  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=160&fit=crop',
-}
-function getCropImage(crops = []) {
-  return CROP_IMAGES[(crops[0] || '').toLowerCase()] || CROP_IMAGES.default
+  coffee:          'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=160&fit=crop',
+  tea:             'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=160&fit=crop',
+  maize:           'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=160&fit=crop',
+  corn:            'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=160&fit=crop',
+  potatoes:        'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=160&fit=crop',
+  'sweet potatoes':'https://images.unsplash.com/photo-1518977822534-7049a61ee0c2?w=400&h=160&fit=crop',
+  beans:           'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=160&fit=crop',
+  avocados:        'https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=160&fit=crop',
+  tomatoes:        'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=160&fit=crop',
+  bananas:         'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=160&fit=crop',
+  sorghum:         'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=400&h=160&fit=crop',
 }
 
-const MOCK_COOPS = [
-  { id: 1, name: 'Musanze Coffee Coop', crops_specialised: ['Coffee', 'Maize'], stock_tons: 24.5 },
-  { id: 2, name: 'Nyanza Potato Growers', crops_specialised: ['Potatoes', 'Beans'], stock_tons: 18.0 },
-  { id: 3, name: 'Kigali Tea Collective', crops_specialised: ['Tea', 'Maize'], stock_tons: 30.0 },
+// Diverse fallbacks — picked by coop ID so every card looks different
+const FALLBACK_IMAGES = [
+  'https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&h=160&fit=crop', // vegetables market
+  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=160&fit=crop', // farm landscape
+  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=160&fit=crop', // colorful produce
+  'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=400&h=160&fit=crop', // market baskets
+  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=160&fit=crop', // harvest field
+  'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=160&fit=crop', // tropical fruits
 ]
 
-const MOCK_DELIVERIES = [
-  { id: 'BCH-2026-001', cooperative: 'Musanze Coffee Coop', crop: 'Coffee', shipped_qty: '12.5 tons', eta: 'Jun 13, 14:00', status: 'IN_TRANSIT' },
-  { id: 'BCH-2026-002', cooperative: 'Huye Highlands Coop', crop: 'Avocados', shipped_qty: '8.0 tons', eta: 'Jun 14, 10:00', status: 'IN_TRANSIT' },
-]
-
-const MOCK_STATS = { active_orders: 18, pending_deliveries: 7, stock_tons: 35.2, loss_rate: 1.2 }
+function getCropImage(crops = [], coopId = 0) {
+  for (const c of crops) {
+    const img = CROP_IMAGES[(c || '').toLowerCase()]
+    if (img) return img
+  }
+  return FALLBACK_IMAGES[Math.abs(coopId) % FALLBACK_IMAGES.length]
+}
 
 export default function DistributorDashboard() {
   const navigate = useNavigate()
-  const [coops, setCoops] = useState(MOCK_COOPS)
-  const [deliveries] = useState(MOCK_DELIVERIES)
-  const [stats, setStats] = useState(MOCK_STATS)
+  const [coops, setCoops] = useState([])
+  const [deliveries, setDeliveries] = useState([])
+  const [stats, setStats] = useState({ active_orders: 0, pending_deliveries: 0, stock_tons: 0, loss_rate: 0 })
   const [searchQ, setSearchQ] = useState('')
-  const [pendingAgentOrders, setPendingAgentOrders] = useState(2)
+  const [pendingAgentOrders, setPendingAgentOrders] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    cooperativesApi.searchDirectory({}).then(res => {
-      const list = res.data?.results ?? res.data ?? []
-      if (list.length >= 3) setCoops(list.slice(0, 3).map(c => ({ ...c, stock_tons: c.stock_tons || Math.random() * 40 + 10 })))
-    }).catch(() => {})
+    Promise.allSettled([
+      cooperativesApi.searchDirectory({}),
+      distributionApi.getMyProduceRequests({}),
+      distributionApi.getMyOrders({}),
+    ]).then(([coopRes, reqRes, ordRes]) => {
+      const coopList = coopRes.status === 'fulfilled' ? (coopRes.value.data?.results ?? coopRes.value.data ?? []) : []
+      setCoops(coopList.slice(0, 3))
 
-    distributionApi.getMyProduceRequests({}).then(res => {
-      const list = res.data?.results ?? res.data ?? []
-      setStats(s => ({ ...s, active_orders: list.length || s.active_orders }))
-    }).catch(() => {})
+      const reqs = reqRes.status === 'fulfilled' ? (reqRes.value.data?.results ?? reqRes.value.data ?? []) : []
+      setStats(s => ({ ...s, active_orders: reqs.length }))
 
-    distributionApi.getMyOrders({}).then(res => {
-      const list = res.data?.results ?? res.data ?? []
-      const pending = list.filter(o => o.status === 'PENDING').length
-      if (pending) setPendingAgentOrders(pending)
-    }).catch(() => {})
+      const orders = ordRes.status === 'fulfilled' ? (ordRes.value.data?.results ?? ordRes.value.data ?? []) : []
+      setPendingAgentOrders(orders.filter(o => o.status === 'PENDING').length)
+    }).finally(() => setLoading(false))
   }, [])
 
   const handleSearch = (e) => {
@@ -84,7 +88,7 @@ export default function DistributorDashboard() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card border-2 border-primary-500">
+        <div className="card">
           <div className="flex items-center gap-3 mb-2">
             <ShoppingCart className="w-5 h-5 text-primary-500" />
             <p className="text-sm text-gray-500">Active Orders</p>
@@ -98,14 +102,14 @@ export default function DistributorDashboard() {
           </div>
           <p className="text-3xl font-bold text-gray-900">{stats.pending_deliveries}</p>
         </div>
-        <div className="card border-2 border-success-500">
+        <div className="card">
           <div className="flex items-center gap-3 mb-2">
             <Package className="w-5 h-5 text-success-500" />
             <p className="text-sm text-gray-500">Stock on Hand</p>
           </div>
           <p className="text-3xl font-bold text-success-600">{stats.stock_tons} tons</p>
         </div>
-        <div className="card border-2 border-warning-400">
+        <div className="card">
           <div className="flex items-center gap-3 mb-2">
             <TrendingDown className="w-5 h-5 text-warning-400" />
             <p className="text-sm text-gray-500">Loss Rate</p>
@@ -125,14 +129,19 @@ export default function DistributorDashboard() {
         </form>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {coops.map(coop => (
+          {loading ? (
+            [1,2,3].map(i => <div key={i} className="h-52 bg-gray-100 rounded-2xl animate-pulse" />)
+          ) : coops.length === 0 ? (
+            <div className="col-span-3 py-10 text-center text-gray-400 text-sm">No cooperatives in the directory yet.</div>
+          ) : null}
+          {!loading && coops.map(coop => (
             <div key={coop.id} className="border-2 border-gray-200 rounded-2xl overflow-hidden hover:border-primary-300 hover:shadow-md transition-all">
               <div className="w-full h-28 overflow-hidden bg-gray-100">
                 <img
-                  src={coop.image_url || getCropImage(coop.crops_specialised)}
+                  src={coop.image_url || getCropImage(coop.crops_specialised, coop.id)}
                   alt={coop.crops_specialised?.[0] || 'Produce'}
                   className="w-full h-full object-cover"
-                  onError={(e) => { e.currentTarget.src = CROP_IMAGES.default }}
+                  onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGES[Math.abs(coop.id || 0) % FALLBACK_IMAGES.length] }}
                 />
               </div>
               <div className="p-4 space-y-2">
@@ -143,7 +152,7 @@ export default function DistributorDashboard() {
                 </p>
                 <Link
                   to={`/distributor/orders?coop=${coop.id}`}
-                  className="block w-full text-center py-2 px-4 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                  className="block w-full text-center py-2 px-4 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
                   Send Request
                 </Link>
               </div>
@@ -184,7 +193,7 @@ export default function DistributorDashboard() {
                 <td className="px-6 py-4 text-gray-500">{d.eta}</td>
                 <td className="px-6 py-4">
                   <Link to="/distributor/deliveries"
-                    className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                    className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
                     Confirm Receipt
                   </Link>
                 </td>

@@ -6,5 +6,6 @@ router = DefaultRouter()
 router.register(r'', views.ReportViewSet, basename='reports')
 
 urlpatterns = [
+    path('export/', views.ExportReportView.as_view(), name='report-export'),
     path('', include(router.urls)),
 ]

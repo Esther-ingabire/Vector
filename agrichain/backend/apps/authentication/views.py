@@ -1,13 +1,15 @@
 """
 Authentication views: login, OTP verify, set password, access requests, user management.
 """
-import hashlib, random, string
+import hashlib, random, string, io
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
 from django.core.mail import send_mail
+from django.core.files.base import ContentFile
 from rest_framework import generics, permissions, status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User, AccessRequest, OTPRecord, AuditLog
@@ -141,7 +143,7 @@ def login_view(request):
     return Response({
         "access": str(refresh.access_token),
         "refresh": str(refresh),
-        "user": UserSerializer(user).data,
+        "user": UserSerializer(user, context={"request": request}).data,
         "must_change_password": user.must_change_password,
     })
 
@@ -159,10 +161,13 @@ def verify_otp(request):
     otp_record.used_at = timezone.now()
     otp_record.save()
 
-    purpose = serializer.validated_data["purpose"]
+    purpose = serializer.validated_data.get("purpose") or OTPRecord.Purpose.ACCOUNT_ACTIVATION
     if purpose == OTPRecord.Purpose.ACCOUNT_ACTIVATION:
         user.is_verified = True
         user.save(update_fields=["is_verified"])
+    elif purpose == OTPRecord.Purpose.PASSWORD_RESET:
+        user.must_change_password = True
+        user.save(update_fields=["must_change_password"])
 
     log_action(user, AuditLog.Action.OTP_VERIFIED, f"OTP verified for purpose: {purpose}", request)
 
@@ -293,8 +298,8 @@ def me(request):
             setattr(request.user, field, value)
         request.user.save(update_fields=list(data.keys()))
         log_action(request.user, AuditLog.Action.DATA_UPDATED, "User updated their profile", request)
-        return Response(UserSerializer(request.user).data)
-    return Response(UserSerializer(request.user).data)
+        return Response(UserSerializer(request.user, context={"request": request}).data)
+    return Response(UserSerializer(request.user, context={"request": request}).data)
 
 
 @api_view(["POST"])
@@ -313,6 +318,99 @@ def create_user_directly(request):
         "message": f"Account created. OTP sent to {user.email or user.phone_number}.",
         "user": UserSerializer(user).data,
     }, status=status.HTTP_201_CREATED)
+
+
+@api_view(["PATCH"])
+@permission_classes([permissions.IsAuthenticated])
+@parser_classes([MultiPartParser])
+def upload_avatar(request):
+    ALLOWED = ('image/jpeg', 'image/png', 'image/webp')
+    MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+
+    f = request.FILES.get('avatar')
+    if not f:
+        return Response({'detail': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    if f.content_type not in ALLOWED:
+        return Response({'detail': 'Only JPEG, PNG and WebP files are accepted.'}, status=status.HTTP_400_BAD_REQUEST)
+    if f.size > MAX_BYTES:
+        return Response({'detail': 'File too large. Maximum size is 5 MB.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from PIL import Image
+    img = Image.open(f)
+    img = img.convert('RGB')
+    img.thumbnail((400, 400), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=85)
+    buf.seek(0)
+
+    user = request.user
+    if user.avatar:
+        user.avatar.delete(save=False)
+
+    filename = f"avatar_{user.id}.jpg"
+    user.avatar.save(filename, ContentFile(buf.read()), save=True)
+
+    avatar_url = request.build_absolute_uri(user.avatar.url)
+    log_action(user, AuditLog.Action.DATA_UPDATED, "Avatar updated", request)
+    return Response({'avatar': avatar_url, 'message': 'Avatar updated.'})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def forgot_password(request):
+    credential = request.data.get("credential", "").strip()
+    if not credential:
+        return Response({"detail": "Phone number or email is required."}, status=status.HTTP_400_BAD_REQUEST)
+    user = None
+    try:
+        user = User.objects.get(phone_number=credential)
+    except User.DoesNotExist:
+        try:
+            user = User.objects.get(email=credential)
+        except User.DoesNotExist:
+            pass
+    # Always return 200 to avoid revealing whether an account exists
+    if user and user.is_active and user.is_verified:
+        otp_code, _ = create_otp_record(user, OTPRecord.Purpose.PASSWORD_RESET)
+        send_otp_email(user, otp_code, OTPRecord.Purpose.PASSWORD_RESET)
+        log_action(user, AuditLog.Action.OTP_VERIFIED, "Password reset OTP requested", request)
+    return Response({"detail": "If an account exists with that credential, a reset code has been sent."})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def resend_otp(request):
+    """
+    Resend an OTP to the user.
+    Body: { credential: phone|email, purpose: ACCOUNT_ACTIVATION|PASSWORD_RESET }
+    Always returns 200 to avoid account enumeration.
+    """
+    credential = request.data.get("credential", "").strip()
+    purpose_str = request.data.get("purpose", "ACCOUNT_ACTIVATION")
+
+    purpose_map = {
+        "ACCOUNT_ACTIVATION": OTPRecord.Purpose.ACCOUNT_ACTIVATION,
+        "PASSWORD_RESET":     OTPRecord.Purpose.PASSWORD_RESET,
+    }
+    purpose = purpose_map.get(purpose_str, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
+
+    user = None
+    if credential:
+        try:
+            user = User.objects.get(phone_number=credential)
+        except User.DoesNotExist:
+            try:
+                user = User.objects.get(email=credential)
+            except User.DoesNotExist:
+                pass
+
+    if user and user.is_active:
+        otp_code, _ = create_otp_record(user, purpose)
+        send_otp_email(user, otp_code, purpose)
+        log_action(user, AuditLog.Action.OTP_SENT, f"OTP resent for {purpose_str}", request)
+
+    return Response({"detail": "If an account exists with that credential, a new code has been sent."})
 
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):

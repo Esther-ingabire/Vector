@@ -18,5 +18,8 @@ urlpatterns = [
     path("access-requests/<int:access_request_id>/approve/", views.approve_and_create_user, name="approve-request"),
     path("access-requests/<int:access_request_id>/reject/", views.reject_access_request, name="reject-request"),
     path("me/", views.me, name="me"),
+    path("forgot-password/", views.forgot_password, name="forgot-password"),
+    path("otp/resend/", views.resend_otp, name="resend-otp"),
+    path("me/avatar/", views.upload_avatar, name="upload-avatar"),
     path("users/create/", views.create_user_directly, name="create-user"),
 ]

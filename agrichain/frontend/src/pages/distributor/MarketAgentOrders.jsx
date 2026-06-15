@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { Plus, RefreshCw, CheckCircle, X, MapPin, ShoppingBag } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import { distributionApi } from '../../api/distribution.js'
@@ -162,14 +162,14 @@ export default function MarketAgentOrders() {
                             <button
                               onClick={() => handleAccept(order)}
                               disabled={busy}
-                              className="px-5 py-1.5 rounded-lg text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors disabled:opacity-60 flex items-center gap-1.5">
+                              className="px-5 py-1.5 rounded-lg text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors disabled:opacity-60 flex items-center gap-1.5">
                               {busy ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
                               Accept
                             </button>
                             <button
                               onClick={() => handleDecline(order)}
                               disabled={busy}
-                              className="px-5 py-1.5 rounded-lg text-sm font-semibold text-danger-600 border border-danger-300 hover:bg-danger-50 transition-colors disabled:opacity-60 flex items-center gap-1.5">
+                              className="px-5 py-1.5 rounded-lg text-sm font-semibold text-danger-600 border border-danger-300/70 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm transition-colors disabled:opacity-60 flex items-center gap-1.5">
                               <X className="w-3.5 h-3.5" />
                               Decline
                             </button>
@@ -182,7 +182,7 @@ export default function MarketAgentOrders() {
                       </div>
                       <button
                         onClick={() => setShowNoticeForm(true)}
-                        className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors flex items-center gap-1.5">
+                        className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors flex items-center gap-1.5">
                         <Plus className="w-3.5 h-3.5" /> Create Notice
                       </button>
                     </div>

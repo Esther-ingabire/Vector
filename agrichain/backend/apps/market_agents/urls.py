@@ -9,4 +9,5 @@ router.register(r'waste-reports', views.WasteReportViewSet, basename='waste-repo
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('notices/', views.AvailableNoticesView.as_view(), name='agent-notices'),
 ]

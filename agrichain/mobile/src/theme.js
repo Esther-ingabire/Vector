@@ -1,0 +1,153 @@
+import { StyleSheet, Platform } from 'react-native';
+
+export const C = {
+  primary: '#15803d',
+  primaryDark: '#166534',
+  primaryLight: '#dcfce7',
+  bg: '#f0fdf4',
+  white: '#ffffff',
+  gray50: '#f9fafb',
+  gray100: '#f3f4f6',
+  gray200: '#e5e7eb',
+  gray400: '#9ca3af',
+  gray500: '#6b7280',
+  gray700: '#374151',
+  gray900: '#111827',
+  success: '#16a34a',
+  warning: '#d97706',
+  danger: '#dc2626',
+};
+
+export const S = StyleSheet.create({
+  card: {
+    backgroundColor: C.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  button: {
+    backgroundColor: C.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: {
+    color: C.white,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  buttonOutline: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: C.primary,
+  },
+  buttonOutlineText: {
+    color: C.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  buttonDanger: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: C.danger,
+  },
+  buttonDangerText: {
+    color: C.danger,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  input: {
+    backgroundColor: C.white,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: C.gray200,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: C.gray900,
+  },
+  inputFocused: {
+    borderColor: C.primary,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.gray700,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  screenBg: {
+    flex: 1,
+    backgroundColor: C.bg,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: C.gray900,
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  spaceBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: C.gray500,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: C.gray400,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  badge: {
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+});

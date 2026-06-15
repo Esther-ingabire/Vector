@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Clock, Truck, History, Box } from 'lucide-react'
+﻿import { Routes, Route, Navigate } from 'react-router-dom'
+import { LayoutDashboard, Clock, Truck, History, Box, FileDown } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import TransporterDashboard from './TransporterDashboard.jsx'
@@ -8,13 +8,15 @@ import ActiveTrip from './ActiveTrip.jsx'
 import TripHistory from './TripHistory.jsx'
 import VehicleProfile from './VehicleProfile.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
+import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
 const navItems = [
-  { to: '/transporter',         label: 'Dashboard',        icon: LayoutDashboard, end: true },
-  { to: '/transporter/pending', label: 'Pending Requests', icon: Clock },
-  { to: '/transporter/active',  label: 'Active Trip',      icon: Truck },
-  { to: '/transporter/history', label: 'Trip History',     icon: History },
-  { to: '/transporter/vehicle', label: 'Vehicle Profile',  icon: Box },
+  { to: '/transporter',          label: 'Dashboard',        icon: LayoutDashboard, end: true },
+  { to: '/transporter/pending',  label: 'Pending Requests', icon: Clock },
+  { to: '/transporter/active',   label: 'Active Trip',      icon: Truck },
+  { to: '/transporter/history',  label: 'Trip History',     icon: History },
+  { to: '/transporter/vehicle',  label: 'Vehicle Profile',  icon: Box },
+  { to: '/transporter/reports',  label: 'Reports',          icon: FileDown },
 ]
 
 export default function TransporterLayout() {
@@ -30,6 +32,7 @@ export default function TransporterLayout() {
             <Route path="active"  element={<ActiveTrip />} />
             <Route path="history" element={<TripHistory />} />
             <Route path="vehicle" element={<VehicleProfile />} />
+            <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/transporter" replace />} />
           </Routes>
@@ -38,3 +41,4 @@ export default function TransporterLayout() {
     </div>
   )
 }
+

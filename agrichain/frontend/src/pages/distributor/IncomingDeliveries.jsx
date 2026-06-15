@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
@@ -145,7 +145,7 @@ export default function IncomingDeliveries() {
                   <td className="px-6 py-4">
                     {d.status === 'DELIVERED' ? (
                       <button onClick={() => openConfirm(d)}
-                        className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors">
+                        className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
                         Confirm Receipt
                       </button>
                     ) : d.status === 'CONFIRMED' ? (

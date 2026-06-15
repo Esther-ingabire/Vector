@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, X, Bell, MapPin } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
@@ -16,22 +16,35 @@ const STATUS_LABEL = {
 const NOTICE_BLANK = { title: '', crop_name: '', quantity_available_kg: '', price_per_kg: '', available_from: '', available_until: '', pickup_location: '', notes: '' }
 
 const CROP_IMAGES = {
-  coffee:   'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=180&fit=crop',
-  tea:      'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=180&fit=crop',
-  maize:    'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=180&fit=crop',
-  corn:     'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=180&fit=crop',
-  potatoes: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=180&fit=crop',
-  beans:    'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=180&fit=crop',
-  avocados: 'https://images.unsplash.com/photo-1523049673857-eb18f1dca2aa?w=400&h=180&fit=crop',
-  tomatoes: 'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=180&fit=crop',
-  rice:     'https://images.unsplash.com/photo-1536304929831-ee1ca9d44906?w=400&h=180&fit=crop',
-  wheat:    'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=180&fit=crop',
-  default:  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=180&fit=crop',
+  coffee:          'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=180&fit=crop',
+  tea:             'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=180&fit=crop',
+  maize:           'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=180&fit=crop',
+  corn:            'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=180&fit=crop',
+  potatoes:        'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=180&fit=crop',
+  'sweet potatoes':'https://images.unsplash.com/photo-1518977822534-7049a61ee0c2?w=400&h=180&fit=crop',
+  beans:           'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=180&fit=crop',
+  avocados:        'https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=180&fit=crop',
+  tomatoes:        'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=180&fit=crop',
+  bananas:         'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=180&fit=crop',
+  sorghum:         'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=400&h=180&fit=crop',
+  rice:            'https://images.unsplash.com/photo-1536304929831-ee1ca9d44906?w=400&h=180&fit=crop',
 }
 
-function getCropImage(crops = []) {
-  const key = (crops[0] || '').toLowerCase()
-  return CROP_IMAGES[key] || CROP_IMAGES.default
+const FALLBACK_IMAGES = [
+  'https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=180&fit=crop',
+]
+
+function getCropImage(crops = [], coopId = 0) {
+  for (const c of crops) {
+    const img = CROP_IMAGES[(c || '').toLowerCase()]
+    if (img) return img
+  }
+  return FALLBACK_IMAGES[Math.abs(coopId) % FALLBACK_IMAGES.length]
 }
 
 // Cooperatives the distributor has worked with before (frequent partners)
@@ -50,7 +63,7 @@ function ScoreBadge({ score }) {
 }
 
 function CoopCard({ coop, onRequest, isFrequent }) {
-  const imgSrc = coop.image_url || getCropImage(coop.crops_specialised)
+  const imgSrc = coop.image_url || getCropImage(coop.crops_specialised, coop.id)
   const wrapperCls = isFrequent
     ? 'rounded-2xl border-2 border-warning-200 bg-warning-50/40 overflow-hidden hover:shadow-md transition-all'
     : 'rounded-2xl border-2 border-gray-200 bg-white overflow-hidden hover:shadow-md hover:border-primary-300 transition-all'
@@ -62,7 +75,7 @@ function CoopCard({ coop, onRequest, isFrequent }) {
           src={imgSrc}
           alt={coop.crops_specialised?.[0] || 'Produce'}
           className="w-full h-full object-cover"
-          onError={(e) => { e.currentTarget.src = CROP_IMAGES.default }}
+          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGES[Math.abs(coop.id || 0) % FALLBACK_IMAGES.length] }}
         />
       </div>
       <div className="p-4 space-y-2">
@@ -79,7 +92,7 @@ function CoopCard({ coop, onRequest, isFrequent }) {
         )}
         <button
           onClick={() => onRequest(coop)}
-          className="w-full py-2 rounded-xl text-sm font-semibold text-white bg-primary-500 hover:bg-primary-600 transition-colors mt-1">
+          className="w-full py-2 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors mt-1">
           {isFrequent ? 'View Profile' : 'Send Request'}
         </button>
       </div>
@@ -447,12 +460,6 @@ export default function OrderManagement() {
       {/* ── Collection Notices ── */}
       {tab === 'notices' && (
         <div className="space-y-4">
-          {/* Explainer banner */}
-          <div className="bg-primary-50 border border-primary-200 rounded-2xl px-5 py-3 text-sm text-primary-800 flex items-start gap-2">
-            <Bell className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            <p>Collection notices tell your linked market agents what produce you have available and at what price. Agents browse these and place orders, which you can accept or decline under <strong>Market Agent Orders</strong>.</p>
-          </div>
-
           {loadingNotices ? (
             <div className="card py-10 text-center text-gray-400">Loading…</div>
           ) : notices.length === 0 ? (

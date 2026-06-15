@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle } from 'lucide-react'
+﻿import { Routes, Route, Navigate } from 'react-router-dom'
+import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle, FileDown } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import CooperativeDashboard from './CooperativeDashboard.jsx'
@@ -11,6 +11,7 @@ import StorageAnalytics from './StorageAnalytics.jsx'
 import TraceabilityView from './TraceabilityView.jsx'
 import DeliveryConfirmations from './DeliveryConfirmations.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
+import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
 const navItems = [
   { to: '/cooperative', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/cooperative/deliveries', label: 'Delivery Confirmations', icon: CheckCircle },
   { to: '/cooperative/storage', label: 'Storage Analytics', icon: Thermometer },
   { to: '/cooperative/traceability', label: 'Traceability', icon: QrCode },
+  { to: '/cooperative/reports', label: 'Reports', icon: FileDown },
   { to: '/cooperative/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -40,6 +42,7 @@ export default function CooperativeLayout() {
             <Route path="deliveries" element={<DeliveryConfirmations />} />
             <Route path="storage" element={<StorageAnalytics />} />
             <Route path="traceability" element={<TraceabilityView />} />
+            <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/cooperative" replace />} />
           </Routes>
@@ -48,3 +51,4 @@ export default function CooperativeLayout() {
     </div>
   )
 }
+

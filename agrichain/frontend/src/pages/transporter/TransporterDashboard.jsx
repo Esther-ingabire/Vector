@@ -1,34 +1,8 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { MapPin, Thermometer, CheckCircle, Clock, Truck } from 'lucide-react'
+import { Thermometer, CheckCircle, Clock, Truck } from 'lucide-react'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
-
-const MOCK_PENDING = [
-  { id: 1, requester_type: 'Cooperative', requester_name: 'Musanze Farmers Coop', pickup_location: 'Musanze', destination: 'Kigali', cargo_description: 'Coffee', estimated_cargo_weight_kg: '1250', required_pickup_datetime: '2026-05-05T09:00:00Z', requires_refrigeration: false },
-  { id: 2, requester_type: 'Distributor', requester_name: 'Kigali Fresh Distributors', pickup_location: 'Kigali', destination: 'Nyanza', cargo_description: 'Maize', estimated_cargo_weight_kg: '800', required_pickup_datetime: '2026-05-06T08:00:00Z', requires_refrigeration: false },
-]
-
-const MOCK_ACTIVE = {
-  id: 1,
-  request: {
-    pickup_location: 'Musanze',
-    destination: 'Kigali Distribution Center',
-    cargo_description: 'Coffee',
-    estimated_cargo_weight_kg: '1250',
-    requires_refrigeration: true,
-    required_pickup_datetime: '2026-05-05T14:00:00Z',
-  },
-  cold_chain_temp: 22,
-  progress_pct: 45,
-  distance_km: 85,
-}
-
-const MOCK_HISTORY = [
-  { id: 1, actual_delivery_datetime: '2026-05-01', pickup_location: 'Musanze', destination: 'Kigali', cargo: 'Maize', weight_kg: 10000, loss_pct: 0.2 },
-  { id: 2, actual_delivery_datetime: '2026-04-28', pickup_location: 'Kigali',  destination: 'Nyanza', cargo: 'Potatoes', weight_kg: 15000, loss_pct: 0.5 },
-  { id: 3, actual_delivery_datetime: '2026-04-25', pickup_location: 'Musanze', destination: 'Kigali', cargo: 'Coffee', weight_kg: 8000, loss_pct: 0.1 },
-]
 
 function RequestCard({ req, onAction, acting }) {
   const pickupDate = req.required_pickup_datetime?.split('T')[0]
@@ -52,13 +26,13 @@ function RequestCard({ req, onAction, acting }) {
         <button
           onClick={() => onAction(req, 'accept')}
           disabled={acting === `${req.id}-accept`}
-          className="py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+          className="py-2 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-60">
           Accept
         </button>
         <button
           onClick={() => onAction(req, 'decline')}
           disabled={acting === `${req.id}-decline`}
-          className="py-2 rounded-xl border-2 border-danger-500 text-danger-500 hover:bg-danger-50 text-sm font-semibold transition-colors disabled:opacity-60">
+          className="py-2 rounded-xl border border-danger-400/60 text-danger-600 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm text-sm font-semibold transition-colors disabled:opacity-60">
           Decline
         </button>
       </div>
@@ -73,9 +47,9 @@ function ActiveTripCard({ trip }) {
     : '—'
 
   return (
-    <div className="bg-white rounded-2xl border-2 border-primary-500 shadow-sm p-5 h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-mono text-gray-500">#{trip?.id || 'BCH-2026-001'}</span>
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs font-mono text-gray-400">#{trip?.id || '1'}</span>
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary-50 text-primary-600">In Transit</span>
       </div>
 
@@ -85,9 +59,9 @@ function ActiveTripCard({ trip }) {
           ['Cargo', `${req?.cargo_description || '—'}, ${Number(req?.estimated_cargo_weight_kg || 0).toLocaleString()} kg`],
           ['ETA', eta],
         ].map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between text-sm border-b border-gray-50 pb-2 last:border-0">
+          <div key={label} className="flex items-center justify-between text-sm border-b border-gray-50 pb-2.5 last:border-0">
             <span className="text-gray-400">{label}:</span>
-            <span className="font-medium text-gray-900 text-right">{value}</span>
+            <span className="font-medium text-gray-800 text-right max-w-[60%]">{value}</span>
           </div>
         ))}
 
@@ -103,7 +77,7 @@ function ActiveTripCard({ trip }) {
       </div>
 
       <Link to="/transporter/active"
-        className="mt-5 block w-full py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold text-center transition-colors">
+        className="mt-5 block w-full py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md text-white text-sm font-semibold text-center transition-colors">
         Mark Delivered
       </Link>
     </div>
@@ -111,39 +85,31 @@ function ActiveTripCard({ trip }) {
 }
 
 export default function TransporterDashboard() {
-  const [pending, setPending]     = useState(MOCK_PENDING)
-  const [activeTrip, setActiveTrip] = useState(MOCK_ACTIVE)
-  const [history, setHistory]     = useState(MOCK_HISTORY)
-  const [acting, setActing]       = useState(null)
+  const [pending, setPending]       = useState([])
+  const [activeTrip, setActiveTrip] = useState(null)
+  const [history, setHistory]       = useState([])
+  const [acting, setActing]         = useState(null)
+  const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
-    transportApi.getMyRequests({ status: 'PENDING' }, { _silent: true })
-      .then(res => {
-        const data = res.data?.results ?? res.data ?? []
-        if (data.length) setPending(data)
-      })
-      .catch(() => {})
-
-    transportApi.getMyActiveTrip({ _silent: true })
-      .then(res => { if (res.data) setActiveTrip(res.data) })
-      .catch(() => {})
-
-    transportApi.getMyTripHistory({ _silent: true })
-      .then(res => {
-        const data = res.data?.results ?? res.data ?? []
-        if (data.length) {
-          setHistory(data.slice(0, 5).map(t => ({
-            id: t.id,
-            actual_delivery_datetime: t.actual_delivery_datetime?.split('T')[0],
-            pickup_location: t.pickup_location || '—',
-            destination: t.destination || '—',
-            cargo: t.cargo_description || '—',
-            weight_kg: Number(t.estimated_cargo_weight_kg || 0),
-            loss_pct: 0,
-          })))
-        }
-      })
-      .catch(() => {})
+    Promise.allSettled([
+      transportApi.getMyRequests({ status: 'PENDING' }, { _silent: true }),
+      transportApi.getMyActiveTrip({ _silent: true }),
+      transportApi.getMyTripHistory({ _silent: true }),
+    ]).then(([pendRes, activeRes, histRes]) => {
+      setPending(pendRes.status === 'fulfilled' ? (pendRes.value.data?.results ?? pendRes.value.data ?? []) : [])
+      setActiveTrip(activeRes.status === 'fulfilled' ? activeRes.value.data || null : null)
+      const hist = histRes.status === 'fulfilled' ? (histRes.value.data?.results ?? histRes.value.data ?? []) : []
+      setHistory(hist.slice(0, 5).map(t => ({
+        id: t.id,
+        actual_delivery_datetime: t.actual_delivery_datetime?.split('T')[0],
+        pickup_location: t.pickup_location || '—',
+        destination: t.destination || '—',
+        cargo: t.cargo_description || '—',
+        weight_kg: Number(t.estimated_cargo_weight_kg || 0),
+        loss_pct: 0,
+      })))
+    }).finally(() => setLoading(false))
   }, [])
 
   const handleAction = async (req, action) => {
@@ -196,7 +162,7 @@ export default function TransporterDashboard() {
         </div>
 
         {/* Active trip */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className={`bg-white rounded-2xl shadow-sm p-5 flex flex-col ${activeTrip ? 'border-2 border-primary-500' : 'border border-gray-100'}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-gray-900">Active Trip</h2>
             <Link to="/transporter/active" className="text-xs text-primary-600 hover:underline">Details</Link>

@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { User, Lock, Eye, EyeOff, CheckCircle, Save } from 'lucide-react'
+import { User, Lock, Eye, EyeOff, CheckCircle, Save, Camera, X } from 'lucide-react'
 import { authApi } from '../../api/auth.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
@@ -38,6 +38,103 @@ const pwdReqs = [
   { label: 'One uppercase letter', test: v => /[A-Z]/.test(v) },
   { label: 'One number', test: v => /[0-9]/.test(v) },
 ]
+
+function AvatarSection({ user, onUpdate }) {
+  const fileRef = useRef(null)
+  const [preview, setPreview] = useState(null)
+  const [uploading, setUploading] = useState(false)
+
+  const initials = `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase() || '?'
+
+  const onFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Only JPEG, PNG or WebP images are accepted.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be under 5 MB.')
+      return
+    }
+    setPreview({ file, url: URL.createObjectURL(file) })
+  }
+
+  const uploadAvatar = async () => {
+    if (!preview) return
+    setUploading(true)
+    try {
+      const res = await authApi.uploadAvatar(preview.file)
+      onUpdate({ ...user, avatar_url: res.data.avatar })
+      toast.success('Profile photo updated.')
+      setPreview(null)
+    } catch {
+      toast.error('Upload failed. Please try again.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const src = preview?.url || user?.avatar_url || null
+
+  return (
+    <div className="card">
+      <div className="flex items-center gap-3 pb-3 border-b border-gray-100 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
+          <Camera className="w-5 h-5 text-primary-600" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-gray-900">Profile Photo</h2>
+          <p className="text-xs text-gray-400">JPEG, PNG or WebP · max 5 MB</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-6">
+        {/* Avatar display */}
+        <div className="relative flex-shrink-0">
+          {src ? (
+            <img src={src} alt="avatar"
+              className="w-20 h-20 rounded-full object-cover border-2 border-primary-200" />
+          ) : (
+            <div className="w-20 h-20 rounded-full bg-primary-600 flex items-center justify-center text-white text-2xl font-bold">
+              {initials}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3 flex-1">
+          {preview ? (
+            <div className="flex items-center gap-3">
+              <button onClick={uploadAvatar} disabled={uploading}
+                className="btn-primary flex items-center gap-2 disabled:opacity-60">
+                {uploading
+                  ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <Save className="w-4 h-4" />}
+                {uploading ? 'Uploading…' : 'Save photo'}
+              </button>
+              <button onClick={() => { setPreview(null); fileRef.current.value = '' }}
+                className="btn-secondary flex items-center gap-1 text-sm">
+                <X className="w-4 h-4" /> Cancel
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => fileRef.current?.click()}
+              className="btn-secondary flex items-center gap-2 text-sm">
+              <Camera className="w-4 h-4" />
+              {user?.avatar_url ? 'Change photo' : 'Upload photo'}
+            </button>
+          )}
+          <p className="text-xs text-gray-400">
+            Your photo is visible to other users in the system.
+          </p>
+        </div>
+      </div>
+
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp"
+        className="hidden" onChange={onFileChange} />
+    </div>
+  )
+}
 
 function ProfileSection({ user, onUpdate }) {
   const [saving, setSaving] = useState(false)
@@ -204,6 +301,7 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="text-sm text-gray-500 mt-0.5">Manage your account and security preferences.</p>
       </div>
+      <AvatarSection user={user} onUpdate={updateUser} />
       <ProfileSection user={user} onUpdate={updateUser} />
       <PasswordSection />
     </div>

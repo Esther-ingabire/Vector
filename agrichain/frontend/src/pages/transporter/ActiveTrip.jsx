@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { Thermometer, CheckCircle, Navigation } from 'lucide-react'
 import { MapContainer, TileLayer, Marker, Polyline, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -175,7 +175,7 @@ export default function ActiveTrip() {
 
           <button
             onClick={() => setShowConfirm(true)}
-            className="mt-auto w-full py-3 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+            className="mt-auto w-full py-3 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
             <CheckCircle className="w-4 h-4" /> Mark as Delivered
           </button>
         </div>

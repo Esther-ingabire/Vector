@@ -1,74 +1,197 @@
 import { useState } from 'react'
-import { Download, Filter } from 'lucide-react'
-import DataTable from '../../components/ui/DataTable.jsx'
-import RiskBadge from '../../components/ui/RiskBadge.jsx'
+import { FileText, Download, Globe, MapPin, Leaf, Activity, Loader } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { analyticsApi, triggerDownload } from '../../api/analytics.js'
 
-const REPORT_DATA = [
-  { region: 'Kigali', crop: 'Tomatoes', produce_tons: 1200, cooperatives: 4, avg_price: 850, trend: +5.2, risk: 'low' },
-  { region: 'Northern', crop: 'Avocados', produce_tons: 980, cooperatives: 6, avg_price: 1200, trend: -2.1, risk: 'low' },
-  { region: 'Southern', crop: 'Beans', produce_tons: 650, cooperatives: 5, avg_price: 900, trend: +8.3, risk: 'medium' },
-  { region: 'Eastern', crop: 'Maize', produce_tons: 2100, cooperatives: 7, avg_price: 400, trend: +1.5, risk: 'low' },
-  { region: 'Western', crop: 'Potatoes', produce_tons: 320, cooperatives: 3, avg_price: 350, trend: -12.4, risk: 'high' },
-  { region: 'Northern', crop: 'Tomatoes', produce_tons: 1800, cooperatives: 6, avg_price: 840, trend: +4.1, risk: 'low' },
-  { region: 'Southern', crop: 'Maize', produce_tons: 1400, cooperatives: 6, avg_price: 410, trend: +2.2, risk: 'low' },
+const LIVE_EXPORTS = [
+  {
+    type: 'national',
+    name: 'National Supply Chain Report',
+    desc: 'District × crop aggregation — volumes, losses, and batch counts across all of Rwanda.',
+    filename: 'national_supply_chain_report.csv',
+    icon: Globe,
+    color: 'text-primary-600',
+    bg: 'bg-primary-50',
+  },
+  {
+    type: 'districts',
+    name: 'District Performance Report',
+    desc: 'District-level ranking by average loss rate, total volume, and risk classification.',
+    filename: 'national_districts_report.csv',
+    icon: MapPin,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50',
+  },
+  {
+    type: 'crops',
+    name: 'Crop Loss Analysis Report',
+    desc: 'National average loss per crop type with volume and batch count statistics.',
+    filename: 'national_crops_report.csv',
+    icon: Leaf,
+    color: 'text-success-600',
+    bg: 'bg-success-50',
+  },
+  {
+    type: 'transport',
+    name: 'National Transport Performance',
+    desc: 'Summary of all transport jobs — routes, transit times, on-time rates, and delay analysis.',
+    filename: 'national_transport_report.csv',
+    icon: Activity,
+    color: 'text-orange-600',
+    bg: 'bg-orange-50',
+  },
 ]
 
-const columns = [
-  { key: 'region', label: 'Region' },
-  { key: 'crop', label: 'Crop' },
-  { key: 'produce_tons', label: 'Volume (tons)', render: v => `${v.toLocaleString()} t` },
-  { key: 'cooperatives', label: 'Cooperatives' },
-  { key: 'avg_price', label: 'Avg price (RWF/kg)', render: v => `RWF ${v.toLocaleString()}` },
-  { key: 'trend', label: 'Price trend', render: v => (
-    <span className={`text-sm font-medium ${v > 0 ? 'text-success-500' : 'text-danger-500'}`}>
-      {v > 0 ? '+' : ''}{v}%
-    </span>
-  )},
-  { key: 'risk', label: 'Risk level', render: v => <RiskBadge risk={v} /> },
+const ARCHIVED_SECTIONS = [
+  {
+    title: 'National KPI Summary',
+    reports: [
+      { name: 'National Supply Chain KPIs - April 2026', date: 'May 1, 2026',  size: '2.4 MB', type: 'PDF'   },
+      { name: 'National Supply Chain KPIs - March 2026', date: 'Apr 1, 2026',  size: '2.3 MB', type: 'PDF'   },
+      { name: 'Q1 2026 Quarterly Summary',               date: 'Apr 1, 2026',  size: '5.1 MB', type: 'Excel' },
+    ],
+  },
+  {
+    title: 'District Loss Reports',
+    reports: [
+      { name: 'District-by-District Loss Analysis - April', date: 'May 1, 2026',  size: '3.8 MB', type: 'PDF'   },
+      { name: 'Musanze District Deep Dive',                  date: 'Apr 28, 2026', size: '1.9 MB', type: 'PDF'   },
+      { name: 'Kigali District Performance Report',          date: 'Apr 28, 2026', size: '2.2 MB', type: 'Excel' },
+    ],
+  },
+  {
+    title: 'Crop Loss Reports',
+    reports: [
+      { name: 'Coffee Supply Chain Analysis',  date: 'Apr 30, 2026', size: '2.7 MB', type: 'PDF'   },
+      { name: 'Maize Loss Patterns & Trends',  date: 'Apr 29, 2026', size: '2.1 MB', type: 'PDF'   },
+      { name: 'Multi-Crop Comparison Report',  date: 'Apr 25, 2026', size: '4.5 MB', type: 'Excel' },
+    ],
+  },
+  {
+    title: 'Cold Chain Compliance',
+    reports: [
+      { name: 'National Cold Chain Compliance - April', date: 'May 1, 2026', size: '1.6 MB', type: 'PDF'   },
+      { name: 'IoT Sensor Violation Log',               date: 'May 1, 2026', size: '3.2 MB', type: 'Excel' },
+      { name: 'Facility Compliance Scorecard Q1',       date: 'Apr 1, 2026', size: '2.0 MB', type: 'PDF'   },
+    ],
+  },
 ]
 
-const PERIODS = ['This month', 'Last month', 'Last quarter', 'Last year']
+const TYPE_STYLE = {
+  PDF:   'bg-red-100 text-red-700',
+  Excel: 'bg-green-100 text-green-700',
+}
 
 export default function NationalReports() {
-  const [period, setPeriod] = useState('This month')
+  const [downloading, setDownloading] = useState(new Set())
+
+  const handleLiveDownload = async (report) => {
+    if (downloading.has(report.type)) return
+    setDownloading(prev => new Set([...prev, report.type]))
+    try {
+      const res = await analyticsApi.exportReport({ report_type: report.type })
+      triggerDownload(res, report.filename)
+      toast.success(`"${report.name}" downloaded`)
+    } catch {
+      toast.error('Could not generate report. Try again.')
+    } finally {
+      setDownloading(prev => {
+        const next = new Set(prev)
+        next.delete(report.type)
+        return next
+      })
+    }
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">National Reports</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Aggregate production, pricing and risk data by region and crop.</p>
-        </div>
-        <div className="flex gap-3">
-          <select className="input text-sm py-1.5 w-40" value={period} onChange={e => setPeriod(e.target.value)}>
-            {PERIODS.map(p => <option key={p}>{p}</option>)}
-          </select>
-          <button className="btn-primary flex items-center gap-2 text-sm">
-            <Download className="w-4 h-4" /> Export
-          </button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Download official reports generated by the ChainSight analytics system</p>
+      </div>
+
+      {/* Live CSV Exports */}
+      <div className="card">
+        <h2 className="font-semibold text-gray-900 mb-1">Live Data Export</h2>
+        <p className="text-xs text-gray-400 mb-5">Generated instantly from the current database — always reflects the latest data</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {LIVE_EXPORTS.map(report => {
+            const Icon = report.icon
+            const busy = downloading.has(report.type)
+            return (
+              <div
+                key={report.type}
+                className="flex flex-col gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${report.bg}`}>
+                    <Icon className={`w-5 h-5 ${report.color}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">{report.name}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{report.desc}</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">CSV · Live</span>
+                  <button
+                    onClick={() => handleLiveDownload(report)}
+                    disabled={busy}
+                    className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
+                  >
+                    {busy
+                      ? <Loader className="w-4 h-4 animate-spin" />
+                      : <Download className="w-4 h-4" />
+                    }
+                    {busy ? 'Generating…' : 'Download CSV'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 
-      {/* Summary row */}
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: 'Total volume tracked', value: `${REPORT_DATA.reduce((a, r) => a + r.produce_tons, 0).toLocaleString()} tons` },
-          { label: 'Regions covered', value: [...new Set(REPORT_DATA.map(r => r.region))].length },
-          { label: 'Crops monitored', value: [...new Set(REPORT_DATA.map(r => r.crop))].length },
-          { label: 'High-risk areas', value: REPORT_DATA.filter(r => r.risk === 'high').length },
-        ].map(s => (
-          <div key={s.label} className="card text-center">
-            <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-            <p className="text-xs text-gray-500 mt-1">{s.label}</p>
-          </div>
-        ))}
-      </div>
+      {/* Pre-generated / archived reports */}
+      <div className="card">
+        <h2 className="font-semibold text-gray-900 mb-1">Pre-Generated Reports</h2>
+        <p className="text-xs text-gray-400 mb-5">Archived PDF and Excel reports from previous reporting periods</p>
 
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <p className="text-sm font-medium text-gray-700">Production & pricing by region · {period}</p>
+        <div className="space-y-8">
+          {ARCHIVED_SECTIONS.map(section => (
+            <div key={section.title}>
+              <div className="border-l-4 border-l-primary-600 pl-3 mb-3">
+                <h3 className="font-semibold text-gray-800">{section.title}</h3>
+              </div>
+              <div className="space-y-2">
+                {section.reports.map((r, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-4 p-3.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                      <FileText className="w-4 h-4 text-gray-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{r.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{r.date} · {r.size}</p>
+                    </div>
+                    <span className={`text-xs font-semibold px-2.5 py-0.5 rounded shrink-0 ${TYPE_STYLE[r.type]}`}>
+                      {r.type}
+                    </span>
+                    <button
+                      onClick={() => toast.success(`Preparing "${r.name}"…`)}
+                      className="btn-primary flex items-center gap-2 text-sm py-2 px-4 shrink-0"
+                    >
+                      <Download className="w-4 h-4" /> Download
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
-        <DataTable columns={columns} data={REPORT_DATA} emptyMessage="No data available." />
       </div>
     </div>
   )

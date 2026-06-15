@@ -8,41 +8,6 @@ import { distributionApi } from '../../api/distribution.js'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
 
-const MOCK_COOPERATIVE = {
-  name: 'My Cooperative',
-  district: 'Musanze',
-  reliability_score: 4.0,
-}
-
-const MOCK_STOCK = [
-  { id: 1, is_available: true,  quantity_kg: 1200 },
-  { id: 2, is_available: true,  quantity_kg: 850  },
-  { id: 3, is_available: false, quantity_kg: 3400 },
-  { id: 4, is_available: true,  quantity_kg: 600  },
-  { id: 5, is_available: true,  quantity_kg: 2100 },
-]
-
-const MOCK_FACILITIES = [
-  { id: 1, name: 'Cold Store A', temp_threshold_amber_celsius: 15 },
-  { id: 2, name: 'Cold Store B', temp_threshold_amber_celsius: 15 },
-]
-
-const MOCK_IOT = [
-  { facility: 1, temperature_celsius: 12.4, humidity_percent: 68, is_temperature_breach: false, is_humidity_breach: false, timestamp: new Date().toISOString() },
-  { facility: 2, temperature_celsius: 18.1, humidity_percent: 72, is_temperature_breach: true,  is_humidity_breach: false, timestamp: new Date().toISOString() },
-]
-
-const MOCK_REQUESTS = [
-  { id: 101, distributor_name: 'Kigali Fresh Distributors', crop_name: 'Tomatoes', quantity_kg: 500,  quality_grade_required: 'A', required_delivery_date: '2026-06-05', status: 'PENDING', rating: 4.5 },
-  { id: 102, distributor_name: 'Southern Produce Ltd',      crop_name: 'Avocados', quantity_kg: 300,  quality_grade_required: 'B', required_delivery_date: '2026-06-06', status: 'PENDING', rating: 3.8 },
-  { id: 103, distributor_name: 'Musanze Wholesalers',       crop_name: 'Potatoes', quantity_kg: 1000, quality_grade_required: 'A', required_delivery_date: '2026-06-07', status: 'PENDING', rating: 4.2 },
-]
-
-const MOCK_TRIPS = [
-  { id: 'T01', cargo_description: 'Tomatoes', pickup_location: 'Musanze', destination: 'Kigali Central Market', transporter_name: 'Claude Mugisha', requires_refrigeration: true },
-  { id: 'T02', cargo_description: 'Avocados', pickup_location: 'Huye',    destination: 'Kigali',                transporter_name: 'Marie Uwase',   requires_refrigeration: false },
-]
-
 function StarRow({ rating }) {
   const full = Math.floor(rating)
   return (
@@ -91,44 +56,30 @@ function StorageGauge({ facility, reading }) {
 
 export default function CooperativeDashboard() {
   const { user } = useAuth()
-  const [cooperative, setCooperative] = useState(MOCK_COOPERATIVE)
-  const [stockItems, setStockItems] = useState(MOCK_STOCK)
-  const [facilities, setFacilities] = useState(MOCK_FACILITIES)
-  const [iotReadings, setIotReadings] = useState(MOCK_IOT)
-  const [trips, setTrips] = useState(MOCK_TRIPS)
-  const [pendingRequests, setPendingRequests] = useState(MOCK_REQUESTS)
-  const [loading, setLoading] = useState(false)
+  const [cooperative, setCooperative] = useState(null)
+  const [stockItems, setStockItems] = useState([])
+  const [facilities, setFacilities] = useState([])
+  const [iotReadings, setIotReadings] = useState([])
+  const [trips, setTrips] = useState([])
+  const [pendingRequests, setPendingRequests] = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     Promise.allSettled([
       cooperativesApi.getMyCooperative(),
       cooperativesApi.getMyFacilities(),
       cooperativesApi.getStorageReadings(),
-      transportApi.getMyRequests({ status: 'IN_TRANSIT' }),
+      transportApi.getMyRequests({ status: 'IN_PROGRESS' }),
       distributionApi.getMyProduceRequests({ status: 'PENDING' }),
       cooperativesApi.getMyStock(),
     ]).then(([coopRes, facRes, iotRes, tripsRes, reqRes, stockRes]) => {
-      if (coopRes.status === 'fulfilled') {
-        const coop = coopRes.value.data
-        if (coop?.name) setCooperative(coop)
-      }
-
-      const facs = facRes.status === 'fulfilled' ? (facRes.value.data?.results ?? facRes.value.data ?? []) : []
-      if (facs.length) setFacilities(facs)
-
-      const iots = iotRes.status === 'fulfilled' ? (iotRes.value.data?.results ?? iotRes.value.data ?? []) : []
-      if (iots.length) setIotReadings(iots)
-
-      const ts = tripsRes.status === 'fulfilled' ? (tripsRes.value.data?.results ?? tripsRes.value.data ?? []) : []
-      if (ts.length) setTrips(ts)
-
-      const reqs = reqRes.status === 'fulfilled' ? (reqRes.value.data?.results ?? reqRes.value.data ?? []) : []
-      if (reqs.length) setPendingRequests(reqs)
-
-      // Stock loaded from dedicated endpoint so it's always fresh
-      const stock = stockRes.status === 'fulfilled' ? (stockRes.value.data?.results ?? stockRes.value.data ?? []) : []
-      if (stock.length) setStockItems(stock)
-    })
+      if (coopRes.status === 'fulfilled') setCooperative(coopRes.value.data || null)
+      setFacilities(facRes.status === 'fulfilled' ? (facRes.value.data?.results ?? facRes.value.data ?? []) : [])
+      setIotReadings(iotRes.status === 'fulfilled' ? (iotRes.value.data?.results ?? iotRes.value.data ?? []) : [])
+      setTrips(tripsRes.status === 'fulfilled' ? (tripsRes.value.data?.results ?? tripsRes.value.data ?? []) : [])
+      setPendingRequests(reqRes.status === 'fulfilled' ? (reqRes.value.data?.results ?? reqRes.value.data ?? []) : [])
+      setStockItems(stockRes.status === 'fulfilled' ? (stockRes.value.data?.results ?? stockRes.value.data ?? []) : [])
+    }).finally(() => setLoading(false))
   }, [])
 
   const latestByFacility = iotReadings.reduce((acc, r) => {
@@ -248,11 +199,21 @@ export default function CooperativeDashboard() {
             <h2 className="font-semibold text-gray-900">Storage Conditions</h2>
             <Link to="/cooperative/storage" className="text-sm text-primary-600 hover:underline">Full analytics</Link>
           </div>
-          <div className="space-y-3">
-            {facilities.slice(0, 2).map(f => (
-              <StorageGauge key={f.id} facility={f} reading={latestByFacility[f.id]} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="space-y-3">{[1,2].map(i => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+          ) : facilities.length === 0 ? (
+            <div className="py-8 text-center text-gray-400">
+              <Thermometer className="w-8 h-8 mx-auto mb-2 text-gray-200" />
+              <p className="text-sm">No storage facilities registered yet.</p>
+              <Link to="/cooperative/storage" className="text-xs text-primary-600 hover:underline mt-1 inline-block">Add a facility</Link>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {facilities.slice(0, 2).map(f => (
+                <StorageGauge key={f.id} facility={f} reading={latestByFacility[f.id]} />
+              ))}
+            </div>
+          )}
           {storageAlerts.length > 0 && (
             <div className="mt-3 p-3 bg-warning-50 rounded-xl flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-warning-500 mt-0.5 flex-shrink-0" />
