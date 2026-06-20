@@ -1,8 +1,10 @@
 ﻿import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, CheckCircle } from 'lucide-react'
+import { RefreshCw, AlertTriangle, CheckCircle, Thermometer, MapPin } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
+import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
 import { distributionApi } from '../../api/distribution.js'
+import { traceabilityApi } from '../../api/traceability.js'
 import toast from 'react-hot-toast'
 
 const MOCK_DELIVERIES = [
@@ -14,8 +16,21 @@ const MOCK_DELIVERIES = [
 
 const CONFIRM_BLANK = { received_qty_kg: '', quality_grade_received: 'A', loss_reason: '', notes: '' }
 const GRADE_OPTIONS = ['A', 'B', 'C']
-const FILTER_OPTIONS = ['ALL', 'IN_TRANSIT', 'DELIVERED', 'CONFIRMED']
-const FILTER_LABEL = { ALL: 'All', IN_TRANSIT: 'In Transit', DELIVERED: 'Delivered', CONFIRMED: 'Confirmed' }
+const FILTER_OPTIONS = ['ALL', 'IN_TRANSIT', 'CONFIRMED']
+const FILTER_LABEL = { ALL: 'All', IN_TRANSIT: 'In Transit', CONFIRMED: 'Confirmed' }
+
+function mapBatch(b) {
+  return {
+    id: b.id,
+    batch_id: b.id,
+    batch_id_short: b.batch_id_short,
+    cooperative_name: b.cooperative_name,
+    crop_name: b.crop_name,
+    shipped_qty_kg: b.dispatch_weight_kg,
+    eta: b.dispatch_timestamp,
+    status: b.current_status === 'AT_DISTRIBUTOR' ? 'CONFIRMED' : 'IN_TRANSIT',
+  }
+}
 
 export default function IncomingDeliveries() {
   const [deliveries, setDeliveries] = useState(MOCK_DELIVERIES)
@@ -24,18 +39,38 @@ export default function IncomingDeliveries() {
   const [confirmTarget, setConfirmTarget] = useState(null)
   const [confirmForm, setConfirmForm] = useState(CONFIRM_BLANK)
   const [saving, setSaving] = useState(false)
+  const [iotTarget, setIotTarget] = useState(null)
+  const [iotData, setIotData] = useState(null)
+  const [loadingIot, setLoadingIot] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await distributionApi.getMyProduceRequests({ status: 'IN_TRANSIT,DELIVERED,CONFIRMED' })
+      const res = await traceabilityApi.getBatches()
       const list = res.data?.results ?? res.data ?? []
-      if (list.length) setDeliveries(list)
+      const relevant = list
+        .filter(b => ['IN_TRANSIT_LEG1', 'AT_DISTRIBUTOR'].includes(b.current_status))
+        .map(mapBatch)
+      if (relevant.length) setDeliveries(relevant)
     } catch {}
     finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const openIot = async (delivery) => {
+    setIotTarget(delivery)
+    setIotData(null)
+    setLoadingIot(true)
+    try {
+      const res = await traceabilityApi.getBatchIoT(delivery.batch_id)
+      setIotData(res.data)
+    } catch {
+      setIotData({ temperature_readings: [], gps_tracks: [] })
+    } finally {
+      setLoadingIot(false)
+    }
+  }
 
   const openConfirm = (delivery) => {
     setConfirmTarget(delivery)
@@ -143,18 +178,25 @@ export default function IncomingDeliveries() {
                   </td>
                   <td className="px-6 py-4"><StatusBadge status={d.status} /></td>
                   <td className="px-6 py-4">
-                    {d.status === 'DELIVERED' ? (
-                      <button onClick={() => openConfirm(d)}
-                        className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
-                        Confirm Receipt
-                      </button>
-                    ) : d.status === 'CONFIRMED' ? (
-                      <span className="text-xs text-success-600 flex items-center gap-1 font-medium">
-                        <CheckCircle className="w-3.5 h-3.5" /> Confirmed
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">Awaiting delivery</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {d.status === 'IN_TRANSIT' && (
+                        <>
+                          <button onClick={() => openIot(d)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors">
+                            <Thermometer className="w-3.5 h-3.5" /> Live Data
+                          </button>
+                          <button onClick={() => openConfirm(d)}
+                            className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
+                            Confirm Receipt
+                          </button>
+                        </>
+                      )}
+                      {d.status === 'CONFIRMED' && (
+                        <span className="text-xs text-success-600 flex items-center gap-1 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5" /> Confirmed
+                        </span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -250,6 +292,43 @@ export default function IncomingDeliveries() {
               </button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Live Vehicle Data modal */}
+      <Modal isOpen={!!iotTarget} onClose={() => setIotTarget(null)}
+        title={`Live Vehicle Data — ${iotTarget?.batch_id_short || ''}`}>
+        {loadingIot ? (
+          <div className="py-8 text-center text-gray-400 text-sm">Loading readings…</div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <Thermometer className="w-3.5 h-3.5" /> Temperature Readings
+              </p>
+              {!iotData?.temperature_readings?.length ? (
+                <p className="text-sm text-gray-400">No temperature readings yet — the vehicle's IoT sensor hasn't reported.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {iotData.temperature_readings.map(r => (
+                    <div key={r.id} className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${r.is_breach ? 'bg-danger-50' : 'bg-gray-50'}`}>
+                      <span className={`font-medium ${r.is_breach ? 'text-danger-600' : 'text-gray-800'}`}>{r.temperature_celsius}°C</span>
+                      <span className="text-xs text-gray-400">{new Date(r.timestamp).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5" /> Live Location
+              </p>
+              <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} height={260} />
+            </div>
+
+            <button onClick={() => setIotTarget(null)} className="btn-secondary w-full">Close</button>
+          </div>
         )}
       </Modal>
     </div>

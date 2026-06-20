@@ -34,6 +34,11 @@ class IsMINAGRIOfficer(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role == "MINAGRI_OFFICER"
 
 
+class IsWarehouseManager(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == "WAREHOUSE_MANAGER"
+
+
 class IsFieldRole(permissions.BasePermission):
     """Transporter or Market Agent."""
     def has_permission(self, request, view):

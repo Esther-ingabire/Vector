@@ -64,3 +64,16 @@ class VehicleIoTReading(models.Model):
 
     def __str__(self):
         return f"Vehicle IoT: {self.temperature_celsius}°C on Trip #{self.trip_id}"
+
+    def _cargo_crop(self):
+        req = self.trip.transport_request
+        batch = req.batch_leg1.first() or req.batch_leg2.first()
+        return batch.crop if batch else None
+
+    def save(self, *args, **kwargs):
+        # Auto-flag breach against the transported crop's cold-chain threshold,
+        # falling back to a generic 8°C amber limit if the cargo's crop isn't resolvable yet.
+        crop = self._cargo_crop()
+        threshold = (crop.safe_temp_max_amber if crop and crop.safe_temp_max_amber is not None else 8.0)
+        self.is_breach = self.temperature_celsius > threshold
+        super().save(*args, **kwargs)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Plus, Search, Phone, MapPin, Trash2, Star, TrendingDown, RefreshCw } from 'lucide-react'
+import { Users, Plus, Search, Phone, MapPin, Trash2, Star, TrendingDown, RefreshCw, CheckCircle, X, Clock } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import toast from 'react-hot-toast'
@@ -15,22 +15,55 @@ const LINK_BLANK = { phone_number: '', name: '' }
 
 export default function MarketAgents() {
   const [agents, setAgents] = useState(MOCK_AGENTS)
+  const [pendingRequests, setPendingRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showLink, setShowLink] = useState(false)
   const [linkForm, setLinkForm] = useState(LINK_BLANK)
   const [saving, setSaving] = useState(false)
   const [removingId, setRemovingId] = useState(null)
+  const [approvingId, setApprovingId] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await distributionApi.getMyMarketAgents({ })
-      const list = res.data?.results ?? res.data ?? []
-      if (list.length) setAgents(list)
-    } catch {}
+      const res = await distributionApi.getPendingAgentRequests()
+      const all = res.data?.results ?? res.data ?? []
+      setAgents(all.filter(l => l.is_active))
+      setPendingRequests(all.filter(l => !l.is_active))
+    } catch {
+      // fallback: load active only
+      try {
+        const res = await distributionApi.getMyMarketAgents({})
+        const list = res.data?.results ?? res.data ?? []
+        if (list.length) setAgents(list)
+      } catch {}
+    }
     finally { setLoading(false) }
   }, [])
+
+  const handleApprove = async (req) => {
+    setApprovingId(req.id)
+    try {
+      await distributionApi.approveLinkRequest(req.id)
+      setPendingRequests(prev => prev.filter(r => r.id !== req.id))
+      setAgents(prev => [...prev, { ...req, is_active: true }])
+      toast.success(`${req.name} approved and linked`)
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Could not approve')
+    } finally { setApprovingId(null) }
+  }
+
+  const handleReject = async (req) => {
+    setApprovingId(req.id)
+    try {
+      await distributionApi.rejectLinkRequest(req.id)
+      setPendingRequests(prev => prev.filter(r => r.id !== req.id))
+      toast.success('Request rejected')
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Could not reject')
+    } finally { setApprovingId(null) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -106,6 +139,43 @@ export default function MarketAgents() {
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
+
+      {/* Pending connection requests */}
+      {pendingRequests.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> Pending Connection Requests ({pendingRequests.length})
+          </p>
+          {pendingRequests.map(req => (
+            <div key={req.id} className="card py-3 flex items-center gap-4 border-amber-200 bg-amber-50/40">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-700 font-bold">
+                {(req.name || 'A')[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-900">{req.name}</p>
+                <p className="text-xs text-gray-500">
+                  {req.market_name && <>{req.market_name}</>}
+                  {req.district && <> · {req.district}</>}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleApprove(req)}
+                  disabled={approvingId === req.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary-500 hover:bg-primary-600 text-white transition-colors disabled:opacity-60">
+                  <CheckCircle className="w-3.5 h-3.5" /> Approve
+                </button>
+                <button
+                  onClick={() => handleReject(req)}
+                  disabled={approvingId === req.id}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-60">
+                  <X className="w-3.5 h-3.5" /> Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Agent cards */}
       {loading ? (

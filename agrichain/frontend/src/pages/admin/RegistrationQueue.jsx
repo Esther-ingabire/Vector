@@ -73,7 +73,7 @@ function DocViewerModal({ doc, onClose }) {
   )
 }
 
-const ROLE_LABELS = { COOPERATIVE_MANAGER: 'Cooperative Manager', TRANSPORTER: 'Transporter', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer' }
+const ROLE_LABELS = { COOPERATIVE_MANAGER: 'Cooperative Manager', TRANSPORTER: 'Transporter', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer', WAREHOUSE_MANAGER: 'Warehouse Manager' }
 
 function RequestCard({ req, onSelect }) {
   return (
@@ -195,6 +195,15 @@ function RequestDetail({ req, onBack, onAction }) {
               <div><label className="label">Last name</label><input className="input" value={newUserData.last_name} onChange={e => setNewUserData(p => ({...p, last_name: e.target.value}))} /></div>
             </div>
             <div><label className="label">Username *</label><input className="input" placeholder="e.g. jhabimana" value={newUserData.username} onChange={e => setNewUserData(p => ({...p, username: e.target.value}))} /></div>
+            <div>
+              <label className="label">Role *</label>
+              <select className="input" value={newUserData.role} onChange={e => setNewUserData(p => ({...p, role: e.target.value}))}>
+                {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              {newUserData.role !== req.role_requested && (
+                <p className="text-xs text-warning-500 mt-1">Applicant requested {ROLE_LABELS[req.role_requested] || req.role_requested} — you're about to grant a different role.</p>
+              )}
+            </div>
             <div><label className="label">Phone number</label><input className="input" value={newUserData.phone_number} onChange={e => setNewUserData(p => ({...p, phone_number: e.target.value}))} /></div>
             <div><label className="label">Email</label><input className="input" value={newUserData.email} onChange={e => setNewUserData(p => ({...p, email: e.target.value}))} /></div>
           </div>

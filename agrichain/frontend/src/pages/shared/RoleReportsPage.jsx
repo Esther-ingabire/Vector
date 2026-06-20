@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Package, Layers, Truck, TrendingUp, ClipboardList,
   BarChart2, Trash2, CheckCircle, Globe, MapPin, Leaf,
-  Activity, Download, Loader,
+  Activity, Download, Loader, FileText,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -159,19 +159,23 @@ export default function RoleReportsPage() {
 
   const reports = CATALOG[user?.role] ?? []
 
-  const handleDownload = async (report) => {
-    if (downloading.has(report.type)) return
-    setDownloading(prev => new Set([...prev, report.type]))
+  const handleDownload = async (report, fileFormat) => {
+    const key = `${report.type}:${fileFormat}`
+    if (downloading.has(key)) return
+    setDownloading(prev => new Set([...prev, key]))
     try {
-      const res = await analyticsApi.exportReport({ report_type: report.type })
-      triggerDownload(res, report.filename)
+      const res = await analyticsApi.exportReport({ report_type: report.type, file_format: fileFormat })
+      const filename = fileFormat === 'pdf'
+        ? report.filename.replace(/\.csv$/, '.pdf')
+        : report.filename
+      triggerDownload(res, filename)
       toast.success(`"${report.name}" downloaded`)
     } catch {
       toast.error('Could not generate report. Try again.')
     } finally {
       setDownloading(prev => {
         const next = new Set(prev)
-        next.delete(report.type)
+        next.delete(key)
         return next
       })
     }
@@ -195,7 +199,8 @@ export default function RoleReportsPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2">
           {reports.map(report => {
             const Icon = report.icon
-            const busy = downloading.has(report.type)
+            const busyCsv = downloading.has(`${report.type}:csv`)
+            const busyPdf = downloading.has(`${report.type}:pdf`)
             return (
               <div
                 key={report.type}
@@ -212,18 +217,25 @@ export default function RoleReportsPage() {
                 </div>
 
                 <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">CSV · Live Data</span>
-                  <button
-                    onClick={() => handleDownload(report)}
-                    disabled={busy}
-                    className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
-                  >
-                    {busy
-                      ? <Loader className="w-4 h-4 animate-spin" />
-                      : <Download className="w-4 h-4" />
-                    }
-                    {busy ? 'Generating…' : 'Download CSV'}
-                  </button>
+                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Live Data</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleDownload(report, 'csv')}
+                      disabled={busyCsv}
+                      className="btn-secondary flex items-center gap-2 text-sm py-2 px-3 disabled:opacity-60"
+                    >
+                      {busyCsv ? <Loader className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      CSV
+                    </button>
+                    <button
+                      onClick={() => handleDownload(report, 'pdf')}
+                      disabled={busyPdf}
+                      className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
+                    >
+                      {busyPdf ? <Loader className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                      {busyPdf ? 'Generating…' : 'PDF'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )
@@ -233,9 +245,10 @@ export default function RoleReportsPage() {
 
       <div className="card bg-blue-50/40 border border-blue-100">
         <p className="text-xs text-blue-700 leading-relaxed">
-          <span className="font-semibold">About these reports:</span> Each CSV is generated live from the current
-          database state — no pre-processing required. Data reflects all activity recorded in ChainSight up to
-          the moment you click download.
+          <span className="font-semibold">About these reports:</span> Each report is generated live from the current
+          database state — no pre-processing required. Choose CSV for further analysis in a spreadsheet, or PDF for
+          a printable, presentable document. Data reflects all activity recorded in ChainSight up to the moment you
+          click download.
         </p>
       </div>
     </div>

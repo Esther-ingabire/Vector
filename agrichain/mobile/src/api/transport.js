@@ -20,3 +20,9 @@ export const confirmPickup = (tripId) =>
 
 export const getMyTripHistory = (params) =>
   client.get('/transport/trips/', { params });
+
+export const reportIncident = (data) =>
+  client.post('/transport/incidents/', data);
+
+export const getVehicleIotReadings = (tripId) =>
+  client.get('/iot/vehicle/', { params: { trip: tripId } });

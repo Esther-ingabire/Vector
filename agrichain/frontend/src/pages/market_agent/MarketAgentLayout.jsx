@@ -1,9 +1,11 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Bell, ClipboardList, Trash2, BarChart2, Settings, FileDown } from 'lucide-react'
+import { LayoutDashboard, Bell, ShoppingBag, ClipboardList, Trash2, BarChart2, Settings, FileDown, Building2 } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import MarketAgentDashboard from './MarketAgentDashboard.jsx'
 import NoticesPage from './NoticesPage.jsx'
+import OrdersPage from './OrdersPage.jsx'
+import FindDistributorsPage from './FindDistributorsPage.jsx'
 import ClaimsPage from './ClaimsPage.jsx'
 import WasteReportPage from './WasteReportPage.jsx'
 import LossSummaryPage from './LossSummaryPage.jsx'
@@ -11,13 +13,15 @@ import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
 const navItems = [
-  { to: '/market-agent',          label: 'Dashboard',    icon: LayoutDashboard, end: true },
-  { to: '/market-agent/notices',  label: 'Notices',      icon: Bell },
-  { to: '/market-agent/claims',   label: 'Claims',       icon: ClipboardList },
-  { to: '/market-agent/waste',    label: 'Waste Report', icon: Trash2 },
-  { to: '/market-agent/losses',   label: 'Loss Summary', icon: BarChart2 },
-  { to: '/market-agent/reports',  label: 'Reports',      icon: FileDown },
-  { to: '/market-agent/settings', label: 'Settings',     icon: Settings },
+  { to: '/market-agent',          label: 'Dashboard',      icon: LayoutDashboard, end: true },
+  { to: '/market-agent/stock',        label: 'Available Stock',    icon: Bell },
+  { to: '/market-agent/orders',       label: 'My Orders',          icon: ShoppingBag },
+  { to: '/market-agent/distributors', label: 'Find Distributors',  icon: Building2 },
+  { to: '/market-agent/claims',   label: 'Claims',         icon: ClipboardList },
+  { to: '/market-agent/waste',    label: 'Waste Report',   icon: Trash2 },
+  { to: '/market-agent/losses',   label: 'Loss Summary',   icon: BarChart2 },
+  { to: '/market-agent/reports',  label: 'Reports',        icon: FileDown },
+  { to: '/market-agent/settings', label: 'Settings',       icon: Settings },
 ]
 
 export default function MarketAgentLayout() {
@@ -29,7 +33,10 @@ export default function MarketAgentLayout() {
         <main className="flex-1 overflow-y-auto p-6">
           <Routes>
             <Route index element={<MarketAgentDashboard />} />
-            <Route path="notices"  element={<NoticesPage />} />
+            <Route path="stock"    element={<NoticesPage />} />
+            <Route path="notices"  element={<Navigate to="/market-agent/stock" replace />} />
+            <Route path="orders"        element={<OrdersPage />} />
+            <Route path="distributors"  element={<FindDistributorsPage />} />
             <Route path="claims"   element={<ClaimsPage />} />
             <Route path="waste"    element={<WasteReportPage />} />
             <Route path="losses"   element={<LossSummaryPage />} />

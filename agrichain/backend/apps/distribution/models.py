@@ -115,6 +115,8 @@ class CollectionNotice(models.Model):
     distributor          = models.ForeignKey(Distributor, on_delete=models.CASCADE, related_name='collection_notices')
     crop                 = models.ForeignKey('cooperatives.Crop', on_delete=models.PROTECT)
     available_quantity_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    price_per_kg         = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                               help_text="RWF per kg — lets market agents compare distributors before connecting.")
     collection_deadline  = models.DateTimeField()
     pickup_location      = models.CharField(max_length=300)
     pickup_gps_lat       = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)

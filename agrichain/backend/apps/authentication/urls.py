@@ -9,6 +9,9 @@ router.register(r"users", views.UserViewSet, basename="users")
 router.register(r"audit-logs", views.AuditLogViewSet, basename="audit-logs")
 
 urlpatterns = [
+    # Must be before router.urls — the router's users/{pk}/ pattern would
+    # otherwise match "create" as a pk value and return 405 for POST.
+    path("users/create/", views.create_user_directly, name="create-user"),
     path("", include(router.urls)),
     path("login/", views.login_view, name="login"),
     path("token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
@@ -21,5 +24,4 @@ urlpatterns = [
     path("forgot-password/", views.forgot_password, name="forgot-password"),
     path("otp/resend/", views.resend_otp, name="resend-otp"),
     path("me/avatar/", views.upload_avatar, name="upload-avatar"),
-    path("users/create/", views.create_user_directly, name="create-user"),
 ]

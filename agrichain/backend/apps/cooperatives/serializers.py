@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Crop, Cooperative, CooperativeStock, ColdStorageFacility
+from .models import Crop, Cooperative, CooperativeStock, ColdStorageFacility, WarehouseManager, WarehouseRentalRequest
 
 
 class CropSerializer(serializers.ModelSerializer):
@@ -23,13 +23,54 @@ class CooperativeStockSerializer(serializers.ModelSerializer):
 
 
 class ColdStorageFacilitySerializer(serializers.ModelSerializer):
+    cooperative_name = serializers.CharField(source='cooperative.name', read_only=True, default=None)
+    warehouse_manager_name = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
+
     class Meta:
         model = ColdStorageFacility
-        fields = ['id', 'name', 'capacity_kg', 'location_description',
+        fields = ['id', 'cooperative', 'cooperative_name', 'warehouse_manager', 'warehouse_manager_name',
+                  'name', 'capacity_kg', 'location_description', 'gps_latitude', 'gps_longitude',
                   'has_iot_sensor', 'sensor_device_id',
+                  'is_available_for_rent', 'rental_price_per_month',
                   'temp_threshold_amber_celsius', 'temp_threshold_red_celsius',
-                  'humidity_threshold_percent', 'is_active', 'created_at']
-        read_only_fields = ['id', 'created_at']
+                  'humidity_threshold_percent', 'is_active', 'created_at', 'distance_km']
+        read_only_fields = ['id', 'cooperative', 'warehouse_manager', 'created_at']
+
+    def get_warehouse_manager_name(self, obj):
+        return str(obj.warehouse_manager) if obj.warehouse_manager_id else None
+
+    def get_distance_km(self, obj):
+        return getattr(obj, 'distance_km', None)
+
+
+class WarehouseManagerSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    facilities = ColdStorageFacilitySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = WarehouseManager
+        fields = ['id', 'user', 'company_name', 'district', 'contact_phone', 'is_active', 'name', 'facilities']
+        read_only_fields = ['id', 'user']
+
+    def get_name(self, obj):
+        return str(obj)
+
+
+class WarehouseRentalRequestSerializer(serializers.ModelSerializer):
+    cooperative_name = serializers.CharField(source='cooperative.name', read_only=True)
+    facility_name = serializers.CharField(source='facility.name', read_only=True)
+    warehouse_manager_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WarehouseRentalRequest
+        fields = ['id', 'cooperative', 'cooperative_name', 'facility', 'facility_name',
+                  'warehouse_manager_name', 'requested_capacity_kg', 'notes',
+                  'status', 'decline_reason', 'responded_at', 'created_at']
+        read_only_fields = ['id', 'cooperative', 'status', 'decline_reason', 'responded_at', 'created_at']
+
+    def get_warehouse_manager_name(self, obj):
+        return str(obj.facility.warehouse_manager) if obj.facility.warehouse_manager_id else None
 
 
 class CooperativeSerializer(serializers.ModelSerializer):
@@ -58,6 +99,7 @@ class CooperativeDirectorySerializer(serializers.ModelSerializer):
     crops_specialised = serializers.StringRelatedField(many=True)
     manager_name = serializers.SerializerMethodField()
     composite_score = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
 
     class Meta:
         model = Cooperative
@@ -65,7 +107,10 @@ class CooperativeDirectorySerializer(serializers.ModelSerializer):
                   'reliability_score', 'on_time_dispatch_rate', 'quality_consistency_rate',
                   'response_rate', 'total_batches_dispatched',
                   'contact_phone', 'contact_email', 'gps_latitude', 'gps_longitude',
-                  'manager_name', 'composite_score']
+                  'manager_name', 'composite_score', 'distance_km']
+
+    def get_distance_km(self, obj):
+        return getattr(obj, 'distance_km', None)
 
     def get_manager_name(self, obj):
         return obj.manager.get_full_name()

@@ -2,12 +2,24 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack
+from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport
 from .serializers import (
     TransporterSerializer, VehicleSerializer,
     TransportRequestSerializer, TripSerializer, TripListSerializer, GPSTrackSerializer,
+    IncidentReportSerializer,
 )
 from apps.authentication.permissions import IsTransporter
+from apps.notifications.models import Notification
+from apps.notifications.services import notify
+
+
+def _requester_user(req):
+    """The user who should be notified about this TransportRequest's progress."""
+    if req.requested_by_cooperative_id:
+        return req.requested_by_cooperative.manager
+    if req.requested_by_distributor_id:
+        return req.requested_by_distributor.user
+    return None
 
 
 class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
@@ -54,16 +66,23 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'COOPERATIVE_MANAGER':
             try:
-                serializer.save(requested_by_cooperative=user.cooperative)
+                req = serializer.save(requested_by_cooperative=user.cooperative)
             except Exception:
-                serializer.save()
+                req = serializer.save()
         elif user.role == 'DISTRIBUTOR':
             try:
-                serializer.save(requested_by_distributor=user.distributor_profile)
+                req = serializer.save(requested_by_distributor=user.distributor_profile)
             except Exception:
-                serializer.save()
+                req = serializer.save()
         else:
-            serializer.save()
+            req = serializer.save()
+        notify(
+            req.transporter.user,
+            Notification.NotificationType.TRANSPORT_REQUEST_RECEIVED,
+            'New Transport Request',
+            f'New pickup requested at {req.pickup_location} for {req.cargo_description}.',
+            related_object_type='transport_request', related_object_id=req.id,
+        )
 
     def get_queryset(self):
         user = self.request.user
@@ -102,6 +121,13 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         req.accepted_at = timezone.now()
         req.save()
         Trip.objects.create(transport_request=req)
+        notify(
+            _requester_user(req),
+            Notification.NotificationType.TRANSPORT_ACCEPTED,
+            'Transport Request Accepted',
+            f'{req.transporter} accepted the pickup at {req.pickup_location}.',
+            related_object_type='transport_request', related_object_id=req.id,
+        )
         return Response(TransportRequestSerializer(req).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
@@ -145,6 +171,15 @@ class TripViewSet(viewsets.ModelViewSet):
         trip.transport_request.status = TransportRequest.Status.IN_PROGRESS
         trip.transport_request.save()
         trip.save()
+        req = trip.transport_request
+        if req.requested_by_distributor_id:
+            notify(
+                req.requested_by_distributor.user,
+                Notification.NotificationType.BATCH_IN_TRANSIT,
+                'Batch Is Now In Transit',
+                f'{req.transporter} picked up cargo from {req.pickup_location}.',
+                related_object_type='trip', related_object_id=trip.id,
+            )
         return Response(TripSerializer(trip).data)
 
     @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
@@ -156,6 +191,23 @@ class TripViewSet(viewsets.ModelViewSet):
         trip.transport_request.status = TransportRequest.Status.COMPLETED
         trip.transport_request.save()
         trip.save()
+        req = trip.transport_request
+        if req.requested_by_cooperative_id:
+            notify(
+                req.requested_by_cooperative.manager,
+                Notification.NotificationType.DELIVERY_CONFIRMED,
+                'Batch Delivered to Distributor',
+                f'{req.transporter} delivered cargo to {req.destination}.',
+                related_object_type='trip', related_object_id=trip.id,
+            )
+        elif req.requested_by_distributor_id:
+            notify(
+                req.requested_by_distributor.user,
+                Notification.NotificationType.BATCH_DELIVERED,
+                'Batch Arrived — Confirm Receipt',
+                f'{req.transporter} delivered cargo to {req.destination}.',
+                related_object_type='trip', related_object_id=trip.id,
+            )
         return Response(TripSerializer(trip).data)
 
     @action(detail=False, methods=['get'], permission_classes=[IsTransporter])
@@ -171,7 +223,10 @@ class TripViewSet(viewsets.ModelViewSet):
             'transport_request__vehicle',
         ).prefetch_related('gps_tracks').filter(
             transport_request__transporter=t,
-            transport_request__status=TransportRequest.Status.IN_PROGRESS,
+            transport_request__status__in=[
+                TransportRequest.Status.ACCEPTED,
+                TransportRequest.Status.IN_PROGRESS,
+            ],
         ).order_by('-created_at').first()
         if not trip:
             return Response({'detail': 'No active trip.'}, status=status.HTTP_404_NOT_FOUND)
@@ -208,3 +263,46 @@ class GPSTrackViewSet(viewsets.ModelViewSet):
             )
         except Exception:
             return GPSTrack.objects.none()
+
+
+class IncidentReportViewSet(viewsets.ModelViewSet):
+    serializer_class = IncidentReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'TRANSPORTER':
+            try:
+                return IncidentReport.objects.filter(
+                    trip__transport_request__transporter=user.transporter_profile
+                )
+            except Exception:
+                return IncidentReport.objects.none()
+        if user.role == 'COOPERATIVE_MANAGER':
+            try:
+                return IncidentReport.objects.filter(
+                    trip__transport_request__requested_by_cooperative=user.cooperative
+                )
+            except Exception:
+                return IncidentReport.objects.none()
+        if user.role == 'DISTRIBUTOR':
+            try:
+                return IncidentReport.objects.filter(
+                    trip__transport_request__requested_by_distributor=user.distributor_profile
+                )
+            except Exception:
+                return IncidentReport.objects.none()
+        if user.role in ('ADMIN', 'MINAGRI_OFFICER'):
+            return IncidentReport.objects.all()
+        return IncidentReport.objects.none()
+
+    def perform_create(self, serializer):
+        incident = serializer.save()
+        req = incident.trip.transport_request
+        notify(
+            _requester_user(req),
+            Notification.NotificationType.INCIDENT_REPORTED,
+            f'Transporter Reported: {incident.get_incident_type_display()}',
+            f'{req.transporter} reported "{incident.get_incident_type_display()}" on the trip to {req.destination}. {incident.description}'.strip(),
+            related_object_type='incident_report', related_object_id=incident.id,
+        )

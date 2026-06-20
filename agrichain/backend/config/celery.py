@@ -51,4 +51,9 @@ app.conf.beat_schedule = {
         'task': 'apps.iot.tasks.simulate_sensor_readings',
         'schedule': crontab(minute='*/15'),
     },
+    # Delay heuristic — flag in-progress trips with no recent GPS update every 10 min
+    'trip-delay-check': {
+        'task': 'apps.transport.tasks.check_trip_delays',
+        'schedule': crontab(minute='*/10'),
+    },
 }

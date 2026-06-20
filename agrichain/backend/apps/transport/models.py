@@ -140,6 +140,7 @@ class Trip(models.Model):
     pickup_confirmed_at      = models.DateTimeField(null=True, blank=True)
     delivery_confirmed_at    = models.DateTimeField(null=True, blank=True)
     delivery_notes           = models.TextField(blank=True)
+    delay_alert_sent         = models.BooleanField(default=False, help_text="Set once a 'no recent GPS update' alert has fired for this trip.")
     created_at               = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -151,6 +152,35 @@ class Trip(models.Model):
             delta = self.actual_delivery_datetime - self.actual_pickup_datetime
             return round(delta.total_seconds() / 3600, 2)
         return None
+
+
+class IncidentReport(models.Model):
+    """
+    An unplanned incident (flat tire, accident, breakdown, road closure) reported by the
+    transporter mid-trip. Triggers a notification to whoever requested that leg
+    (the cooperative or distributor) so they can react before the delay surprises them.
+    """
+
+    class IncidentType(models.TextChoices):
+        FLAT_TIRE    = 'FLAT_TIRE',    'Flat Tire'
+        ACCIDENT     = 'ACCIDENT',     'Accident'
+        BREAKDOWN    = 'BREAKDOWN',    'Vehicle Breakdown'
+        ROAD_CLOSURE = 'ROAD_CLOSURE', 'Road Closure / Detour'
+        OTHER        = 'OTHER',        'Other'
+
+    trip           = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='incident_reports')
+    incident_type  = models.CharField(max_length=20, choices=IncidentType.choices)
+    description    = models.TextField(blank=True)
+    gps_lat        = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    gps_lng        = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    resolved       = models.BooleanField(default=False)
+    reported_at    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-reported_at']
+
+    def __str__(self):
+        return f"{self.get_incident_type_display()} on Trip #{self.trip_id}"
 
 
 class GPSTrack(models.Model):

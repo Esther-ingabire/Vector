@@ -36,7 +36,7 @@ class BatchSerializer(serializers.ModelSerializer):
                   'market_spoilage_loss_kg', 'market_spoilage_loss_pct',
                   'total_loss_kg', 'total_loss_pct',
                   'created_at', 'updated_at', 'qr_scans']
-        read_only_fields = ['id', 'batch_id', 'dispatched_by', 'created_at', 'updated_at',
+        read_only_fields = ['id', 'batch_id', 'dispatched_by', 'cooperative', 'created_at', 'updated_at',
                             'transit_loss_leg1_kg', 'transit_loss_leg1_pct',
                             'self_transport_loss_kg', 'self_transport_loss_pct',
                             'market_spoilage_loss_kg', 'market_spoilage_loss_pct',
@@ -60,6 +60,7 @@ class BatchListSerializer(serializers.ModelSerializer):
             'weight_at_distributor_kg', 'quality_at_distributor',
             'distributor_receipt_timestamp',
             'transit_loss_leg1_pct', 'total_loss_pct',
+            'transport_request_leg1', 'transport_request_leg2',
         ]
 
     def get_batch_id_short(self, obj):

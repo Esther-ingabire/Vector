@@ -1,5 +1,5 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle, FileDown } from 'lucide-react'
+import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle, FileDown, Warehouse } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import CooperativeDashboard from './CooperativeDashboard.jsx'
@@ -8,6 +8,7 @@ import ProduceRequests from './ProduceRequests.jsx'
 import TransportRequests from './TransportRequests.jsx'
 import ActiveBatches from './ActiveBatches.jsx'
 import StorageAnalytics from './StorageAnalytics.jsx'
+import RentWarehouse from './RentWarehouse.jsx'
 import TraceabilityView from './TraceabilityView.jsx'
 import DeliveryConfirmations from './DeliveryConfirmations.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/cooperative/batches', label: 'Active Batches', icon: QrCode },
   { to: '/cooperative/deliveries', label: 'Delivery Confirmations', icon: CheckCircle },
   { to: '/cooperative/storage', label: 'Storage Analytics', icon: Thermometer },
+  { to: '/cooperative/rent-warehouse', label: 'Rent Warehouse', icon: Warehouse },
   { to: '/cooperative/traceability', label: 'Traceability', icon: QrCode },
   { to: '/cooperative/reports', label: 'Reports', icon: FileDown },
   { to: '/cooperative/settings', label: 'Settings', icon: Settings },
@@ -41,6 +43,7 @@ export default function CooperativeLayout() {
             <Route path="batches" element={<ActiveBatches />} />
             <Route path="deliveries" element={<DeliveryConfirmations />} />
             <Route path="storage" element={<StorageAnalytics />} />
+            <Route path="rent-warehouse" element={<RentWarehouse />} />
             <Route path="traceability" element={<TraceabilityView />} />
             <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />

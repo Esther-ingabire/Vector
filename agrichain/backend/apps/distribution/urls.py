@@ -11,8 +11,12 @@ router.register(r'orders', views.OrderViewSet, basename='orders')
 
 urlpatterns = [
     path('', include(router.urls)),
-    # Market agent link management
+    # Market agent link management (distributor side)
     path('market-agents/', views.MarketAgentListView.as_view()),
     path('market-agents/link/', views.MarketAgentLinkView.as_view()),
     path('market-agents/link/<int:link_id>/', views.MarketAgentUnlinkView.as_view()),
+    path('market-agents/link/<int:link_id>/approve/', views.ApproveLinkRequestView.as_view()),
+    # Agent-initiated discovery
+    path('market-agents/my-links/', views.AgentMyLinksView.as_view()),
+    path('market-agents/request-link/', views.AgentRequestLinkView.as_view()),
 ]

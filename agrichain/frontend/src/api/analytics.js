@@ -16,16 +16,16 @@ export const analyticsApi = {
   getDistributionAnalytics: ()    => apiClient.get('/analytics/distribution/'),
 
   // AI Insights
-  getDailyBrief: ()               => apiClient.get('/ai-insights/daily-brief/'),
-  getInsights:   (params)         => apiClient.get('/ai-insights/', { params }),
+  getDailyBrief: ()               => apiClient.get('/ai-insights/daily-brief/latest/'),
+  getInsights:   (params)         => apiClient.get('/ai-insights/insights/', { params }),
 
   // Reports
   getReports:    (params)         => apiClient.get('/reports/', { params }),
   requestReport: (data)           => apiClient.post('/reports/generate/', data),
   downloadReport:(id)             => apiClient.get(`/reports/${id}/download/`, { responseType: 'blob' }),
 
-  // CSV export (role-aware, immediate download)
-  // params: { report_type: 'batches' | 'stock' | 'jobs' | ... }
+  // CSV/PDF export (role-aware, immediate download)
+  // params: { report_type: 'batches' | 'stock' | 'jobs' | ..., file_format: 'csv' | 'pdf' }
   exportReport: (params)          => apiClient.get('/reports/export/', { params, responseType: 'blob' }),
 
   // Loss prediction

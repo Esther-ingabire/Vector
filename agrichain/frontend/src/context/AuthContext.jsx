@@ -69,6 +69,7 @@ export function navigateByRole(role, navigate) {
     DISTRIBUTOR: '/distributor',
     MARKET_AGENT: '/market-agent',
     MINAGRI_OFFICER: '/minagri',
+    WAREHOUSE_MANAGER: '/warehouse',
   }
   navigate(routes[role] || '/login')
 }

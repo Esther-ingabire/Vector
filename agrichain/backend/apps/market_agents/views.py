@@ -12,6 +12,8 @@ from .serializers import (
     WasteReportSerializer, CollectionNoticeForAgentSerializer,
 )
 from apps.authentication.permissions import IsMarketAgent
+from apps.notifications.models import Notification
+from apps.notifications.services import notify
 
 
 class MarketAgentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -93,7 +95,14 @@ class CollectionConfirmationViewSet(viewsets.ModelViewSet):
         return CollectionConfirmation.objects.none()
 
     def perform_create(self, serializer):
-        serializer.save(market_agent=self.request.user.market_agent_profile)
+        confirmation = serializer.save(market_agent=self.request.user.market_agent_profile)
+        notify(
+            confirmation.order.distributor.user,
+            Notification.NotificationType.AGENT_COLLECTION_CONFIRMED,
+            'Market Agent Collected Produce',
+            f'{confirmation.market_agent} collected {confirmation.quantity_collected_kg}kg for Order #{confirmation.order_id}.',
+            related_object_type='collection_confirmation', related_object_id=confirmation.id,
+        )
 
 
 class WasteReportViewSet(viewsets.ModelViewSet):
@@ -124,6 +133,22 @@ class AvailableNoticesView(APIView):
         now = timezone.now()
         notices = CollectionNotice.objects.filter(
             is_active=True, collection_deadline__gte=now
-        ).select_related('distributor__user', 'crop').order_by('collection_deadline')
+        ).select_related('distributor__user', 'crop')
+
+        min_price = request.query_params.get('min_price')
+        max_price = request.query_params.get('max_price')
+        if min_price:
+            notices = notices.filter(price_per_kg__gte=min_price)
+        if max_price:
+            notices = notices.filter(price_per_kg__lte=max_price)
+
+        sort = request.query_params.get('sort')
+        if sort == 'price_asc':
+            notices = notices.order_by('price_per_kg', 'collection_deadline')
+        elif sort == 'price_desc':
+            notices = notices.order_by('-price_per_kg', 'collection_deadline')
+        else:
+            notices = notices.order_by('collection_deadline')
+
         serializer = CollectionNoticeForAgentSerializer(notices, many=True, context={'now': now})
         return Response(serializer.data)

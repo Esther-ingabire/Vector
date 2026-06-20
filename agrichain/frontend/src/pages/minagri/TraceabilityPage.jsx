@@ -1,6 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Search, Users, Truck, Building2, MapPin, AlertTriangle, CheckCircle, Clock, Loader } from 'lucide-react'
 import { traceabilityApi } from '../../api/traceability.js'
+import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
+
+const TRANSIT_STATUSES = ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2']
 
 const STATUS_BADGE = {
   AT_COOPERATIVE:   'bg-yellow-100 text-yellow-700',
@@ -121,7 +124,14 @@ export default function TraceabilityPage() {
   const [detail,      setDetail]      = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [searched,    setSearched]    = useState(false)
+  const [iotData,     setIotData]     = useState(null)
   const timelineRef = useRef(null)
+
+  useEffect(() => {
+    setIotData(null)
+    if (!detail || !TRANSIT_STATUSES.includes(detail.current_status)) return
+    traceabilityApi.getBatchIoT(detail.id).then(res => setIotData(res.data)).catch(() => {})
+  }, [detail?.id, detail?.current_status])
 
   const handleSearch = async () => {
     setSearching(true)
@@ -224,6 +234,15 @@ export default function TraceabilityPage() {
               <Loader className="w-4 h-4 animate-spin" /> Loading batch details…
             </div>
           ) : (
+            <>
+            {detail && TRANSIT_STATUSES.includes(detail.current_status) && (
+              <div className="mb-6">
+                <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4" /> Live Location
+                </p>
+                <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} height={280} />
+              </div>
+            )}
             <div className="relative pl-10">
               <div className="absolute left-4 top-5 bottom-5 w-0.5 bg-gray-200" />
               <div className="space-y-6">
@@ -255,6 +274,7 @@ export default function TraceabilityPage() {
                 })}
               </div>
             </div>
+            </>
           )}
         </div>
       )}

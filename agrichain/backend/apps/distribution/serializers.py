@@ -22,32 +22,58 @@ def _resolve_crop(name):
 
 class DistributorSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
+    active_notices = serializers.SerializerMethodField()
 
     class Meta:
         model = Distributor
         fields = ['id', 'user', 'company_name', 'warehouse_location', 'warehouse_gps_lat',
-                  'warehouse_gps_lng', 'district', 'contact_phone', 'is_active', 'name']
+                  'warehouse_gps_lng', 'district', 'contact_phone', 'is_active', 'name',
+                  'distance_km', 'active_notices']
         read_only_fields = ['id', 'user']
 
     def get_name(self, obj):
         return str(obj)
+
+    def get_distance_km(self, obj):
+        return getattr(obj, 'distance_km', None)
+
+    def get_active_notices(self, obj):
+        from django.utils import timezone
+        notices = obj.collection_notices.filter(
+            is_active=True, collection_deadline__gte=timezone.now()
+        ).select_related('crop')
+        return [
+            {
+                'id': n.id,
+                'crop_name': n.crop.name,
+                'available_quantity_kg': n.available_quantity_kg,
+                'collection_deadline': n.collection_deadline,
+            }
+            for n in notices
+        ]
 
 
 class ProduceRequestSerializer(serializers.ModelSerializer):
     cooperative_name = serializers.CharField(source='cooperative.name', read_only=True)
     crop_name = serializers.CharField(source='crop.name', read_only=True)
     distributor_name = serializers.SerializerMethodField()
+    supply_agreement_id = serializers.SerializerMethodField()
 
     class Meta:
         model = ProduceRequest
         fields = ['id', 'distributor', 'distributor_name', 'cooperative', 'cooperative_name',
                   'crop', 'crop_name', 'quantity_kg', 'quality_grade_required',
                   'required_delivery_date', 'additional_notes', 'status',
-                  'cooperative_response_notes', 'responded_at', 'created_at', 'updated_at']
+                  'cooperative_response_notes', 'responded_at', 'created_at', 'updated_at',
+                  'supply_agreement_id']
         read_only_fields = ['id', 'distributor', 'responded_at', 'created_at', 'updated_at']
 
     def get_distributor_name(self, obj):
         return str(obj.distributor)
+
+    def get_supply_agreement_id(self, obj):
+        return getattr(obj.supply_agreement, 'id', None) if hasattr(obj, 'supply_agreement') else None
 
     def to_internal_value(self, data):
         # Mutable copy
@@ -79,7 +105,7 @@ class CollectionNoticeSerializer(serializers.ModelSerializer):
     class Meta:
         model = CollectionNotice
         fields = ['id', 'distributor', 'distributor_name', 'crop', 'crop_name',
-                  'available_quantity_kg', 'collection_deadline', 'pickup_location',
+                  'available_quantity_kg', 'price_per_kg', 'collection_deadline', 'pickup_location',
                   'pickup_gps_lat', 'pickup_gps_lng', 'notes', 'is_active', 'orders_count',
                   'created_at', 'updated_at']
         read_only_fields = ['id', 'distributor', 'created_at', 'updated_at']
@@ -107,7 +133,7 @@ class CollectionNoticeSerializer(serializers.ModelSerializer):
             data['collection_deadline'] = data.pop('available_until')
 
         # Drop frontend-only fields not on the model
-        for key in ('title', 'price_per_kg', 'available_from'):
+        for key in ('title', 'available_from'):
             data.pop(key, None)
 
         return super().to_internal_value(data)
@@ -126,7 +152,7 @@ class OrderSerializer(serializers.ModelSerializer):
                   'confirmed_quantity_kg', 'adjustment_reason',
                   'delivery_method', 'transporter', 'status',
                   'created_at', 'confirmed_at', 'updated_at']
-        read_only_fields = ['id', 'distributor', 'confirmed_at', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'market_agent', 'distributor', 'confirmed_at', 'created_at', 'updated_at']
 
     def get_market_agent_name(self, obj):
         return str(obj.market_agent)

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX } from 'lucide-react'
+import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
@@ -44,6 +44,7 @@ export default function TransportRequests() {
   const [loadingTransporters, setLoadingTransporters] = useState(true)
 
   const [showNewRequest, setShowNewRequest] = useState(false)
+  const [transporterSearch, setTransporterSearch] = useState('')
   const [showRegister, setShowRegister] = useState(false)
   const [showEditTransporter, setShowEditTransporter] = useState(false)
   const [editingTransporter, setEditingTransporter] = useState(null)
@@ -85,6 +86,7 @@ export default function TransportRequests() {
       toast.success('Transport request submitted')
       setShowNewRequest(false)
       setForm(BLANK_REQUEST)
+      setTransporterSearch('')
     } catch {
       // interceptor handles toast
     } finally {
@@ -123,6 +125,12 @@ export default function TransportRequests() {
   const tDistricts = (t) => Array.isArray(t.operating_districts)
     ? t.operating_districts.join(', ')
     : t.operating_districts || ''
+
+  const BUSY_STATUSES = new Set(['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'IN_TRANSIT'])
+  const activeCountFor = (t) => requests.filter(r => {
+    if (!BUSY_STATUSES.has(r.status)) return false
+    return String(r.transporter) === String(t.id) || r.transporter_name === tName(t)
+  }).length
 
   const startEditTransporter = (t) => {
     setEditingTransporter(t)
@@ -295,18 +303,71 @@ export default function TransportRequests() {
       )}
 
       {/* New Transport Request modal */}
-      <Modal isOpen={showNewRequest} onClose={() => setShowNewRequest(false)} title="New Transport Request">
+      <Modal isOpen={showNewRequest} onClose={() => { setShowNewRequest(false); setTransporterSearch('') }} title="New Transport Request">
         <form onSubmit={submitRequest} className="space-y-4">
           <div>
-            <label className="label">Transporter *</label>
-            <select className="input" value={form.transporter} onChange={e => setForm(f => ({ ...f, transporter: e.target.value }))} required>
-              <option value="">Select transporter…</option>
-              {transporters.map(t => (
-                <option key={t.id} value={t.id}>{tName(t)}{t.company_name ? ` — ${t.company_name}` : ''}</option>
-              ))}
-            </select>
-            {transporters.length === 0 && (
-              <p className="text-xs text-warning-500 mt-1">No transporters registered yet. <button type="button" onClick={() => { setShowNewRequest(false); setShowRegister(true) }} className="underline">Register one first.</button></p>
+            <label className="label">Select transporter *</label>
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                className="input pl-8 text-sm"
+                placeholder="Filter by name or district…"
+                value={transporterSearch}
+                onChange={e => setTransporterSearch(e.target.value)}
+              />
+            </div>
+            {transporters.length === 0 ? (
+              <p className="text-xs text-warning-500">No transporters registered yet. <button type="button" onClick={() => { setShowNewRequest(false); setShowRegister(true) }} className="underline">Register one first.</button></p>
+            ) : (
+              <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                {transporters
+                  .filter(t => {
+                    if (!transporterSearch.trim()) return true
+                    const q = transporterSearch.toLowerCase()
+                    return (
+                      tName(t).toLowerCase().includes(q) ||
+                      (t.company_name || '').toLowerCase().includes(q) ||
+                      tDistricts(t).toLowerCase().includes(q)
+                    )
+                  })
+                  .map(t => {
+                    const selected = String(form.transporter) === String(t.id)
+                    const activeCount = activeCountFor(t)
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, transporter: t.id }))}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${selected ? 'bg-primary-100' : 'bg-gray-100'}`}>
+                          <Truck className={`w-4 h-4 ${selected ? 'text-primary-600' : 'text-gray-400'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium truncate ${selected ? 'text-primary-700' : 'text-gray-900'}`}>{tName(t)}</p>
+                          <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            {tDistricts(t) || t.company_name || 'No districts listed'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {activeCount > 0
+                            ? <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-50 text-warning-600">{activeCount} active</span>
+                            : <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-50 text-success-600">Free</span>
+                          }
+                          {selected && <span className="text-primary-600 text-xs font-medium">Selected</span>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                {transporters.filter(t => {
+                  if (!transporterSearch.trim()) return true
+                  const q = transporterSearch.toLowerCase()
+                  return tName(t).toLowerCase().includes(q) || (t.company_name || '').toLowerCase().includes(q) || tDistricts(t).toLowerCase().includes(q)
+                }).length === 0 && (
+                  <p className="text-center text-sm text-gray-400 py-4">No transporters match "{transporterSearch}"</p>
+                )}
+              </div>
             )}
           </div>
           <div>

@@ -119,17 +119,55 @@ class CooperativeStock(models.Model):
         return f"{self.cooperative.name} — {self.crop.name} {self.quantity_kg}kg ({self.quality_grade})"
 
 
-class ColdStorageFacility(models.Model):
+class WarehouseManager(models.Model):
     """
-    Cold storage facility at a cooperative. IoT sensor data is linked here.
+    Independent operator of cold storage facilities that cooperatives without their own
+    storage can rent space in. A WarehouseManager owns/manages ColdStorageFacility records
+    directly (see ColdStorageFacility.warehouse_manager).
     """
 
-    cooperative          = models.ForeignKey(Cooperative, on_delete=models.CASCADE, related_name='storage_facilities')
+    user         = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                        related_name='warehouse_manager_profile',
+                                        limit_choices_to={'role': 'WAREHOUSE_MANAGER'})
+    company_name = models.CharField(max_length=200, blank=True)
+    district     = models.CharField(max_length=100, blank=True)
+    contact_phone = models.CharField(max_length=20, blank=True)
+
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.company_name or self.user.get_full_name()
+
+
+class ColdStorageFacility(models.Model):
+    """
+    Cold storage facility. Either owned/operated directly by a cooperative (the original
+    design — `cooperative` set, `warehouse_manager` null), or owned by an independent
+    WarehouseManager and rented out to cooperatives that lack their own storage.
+
+    For a warehouse-manager-owned facility, `cooperative` is null until a rental request is
+    accepted — at which point it's set to the renting cooperative. This means every existing
+    code path that scopes IoT readings/analytics through `facility.cooperative` keeps working
+    unchanged regardless of who owns the physical hardware.
+    """
+
+    cooperative          = models.ForeignKey(Cooperative, on_delete=models.CASCADE,
+                                             related_name='storage_facilities', null=True, blank=True)
+    warehouse_manager    = models.ForeignKey(WarehouseManager, on_delete=models.SET_NULL,
+                                             related_name='facilities', null=True, blank=True)
     name                 = models.CharField(max_length=200)
     capacity_kg          = models.DecimalField(max_digits=10, decimal_places=2)
     location_description = models.TextField(blank=True)
+    gps_latitude         = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    gps_longitude        = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     has_iot_sensor       = models.BooleanField(default=False)
     sensor_device_id     = models.CharField(max_length=100, blank=True, help_text="ESP32 device identifier")
+
+    # Rental — only meaningful when warehouse_manager is set
+    is_available_for_rent  = models.BooleanField(default=False)
+    rental_price_per_month = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                                 help_text="RWF per month, shown to cooperatives browsing for space.")
 
     # Alert thresholds (configurable per facility)
     temp_threshold_amber_celsius = models.FloatField(default=15.0)
@@ -141,7 +179,38 @@ class ColdStorageFacility(models.Model):
 
     class Meta:
         verbose_name_plural = 'Cold Storage Facilities'
-        ordering = ['cooperative', 'name']
+        ordering = ['name']
 
     def __str__(self):
-        return f"{self.name} @ {self.cooperative.name}"
+        owner = self.cooperative.name if self.cooperative else (self.warehouse_manager or 'Unassigned')
+        return f"{self.name} @ {owner}"
+
+
+class WarehouseRentalRequest(models.Model):
+    """
+    A cooperative's request to rent space in a warehouse-manager-owned ColdStorageFacility.
+    On acceptance, the facility's `cooperative` is set to the renter so every existing
+    IoT/analytics code path scopes correctly without any further changes.
+    """
+
+    class Status(models.TextChoices):
+        PENDING  = 'PENDING',  'Pending'
+        ACCEPTED = 'ACCEPTED', 'Accepted'
+        DECLINED = 'DECLINED', 'Declined'
+        ENDED    = 'ENDED',    'Ended'
+
+    cooperative           = models.ForeignKey(Cooperative, on_delete=models.CASCADE, related_name='warehouse_rental_requests')
+    facility              = models.ForeignKey(ColdStorageFacility, on_delete=models.CASCADE, related_name='rental_requests')
+    requested_capacity_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    notes                 = models.TextField(blank=True)
+
+    status       = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    decline_reason = models.TextField(blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Rental request: {self.cooperative} → {self.facility} ({self.status})"

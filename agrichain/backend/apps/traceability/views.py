@@ -1,5 +1,6 @@
 import qrcode
 import io
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
@@ -24,9 +25,8 @@ class BatchViewSet(viewsets.ModelViewSet):
                 dist = user.distributor_profile
                 # Include both received batches and in-transit batches destined for this distributor
                 return Batch.objects.filter(
-                    received_by_distributor=dist
-                ) | Batch.objects.filter(
-                    supply_agreement__produce_request__distributor=dist
+                    Q(received_by_distributor=dist) |
+                    Q(supply_agreement__produce_request__distributor=dist)
                 ).distinct()
             except Exception:
                 return Batch.objects.none()
@@ -80,6 +80,42 @@ class BatchViewSet(viewsets.ModelViewSet):
             gps_longitude=request.data.get('gps_longitude'),
         )
         return Response(QRCodeScanEventSerializer(scan).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def iot(self, request, pk=None):
+        """Combined GPS + vehicle temperature readings for this batch's trip(s) —
+        powers the live vehicle monitoring view for cooperatives/distributors/transporters."""
+        batch = self.get_object()
+        from apps.iot.models import VehicleIoTReading
+        from apps.iot.serializers import VehicleIoTReadingSerializer
+        from apps.transport.models import GPSTrack
+        from apps.transport.serializers import GPSTrackSerializer
+
+        trip_ids = []
+        active_request = None
+        for req in (batch.transport_request_leg1, batch.transport_request_leg2):
+            if req and hasattr(req, 'trip'):
+                trip_ids.append(req.trip.id)
+                if not req.trip.delivery_confirmed_at:
+                    active_request = req
+
+        readings = VehicleIoTReading.objects.filter(trip_id__in=trip_ids).order_by('-timestamp')[:50]
+        gps = GPSTrack.objects.filter(trip_id__in=trip_ids).order_by('timestamp')[:200]
+        route = None
+        if active_request:
+            route = {
+                'pickup_location': active_request.pickup_location,
+                'pickup_gps_lat': active_request.pickup_gps_lat,
+                'pickup_gps_lng': active_request.pickup_gps_lng,
+                'destination': active_request.destination,
+                'destination_gps_lat': active_request.destination_gps_lat,
+                'destination_gps_lng': active_request.destination_gps_lng,
+            }
+        return Response({
+            'temperature_readings': VehicleIoTReadingSerializer(readings, many=True).data,
+            'gps_tracks': GPSTrackSerializer(gps, many=True).data,
+            'route': route,
+        })
 
     @action(detail=False, methods=['get'])
     def lookup(self, request):

@@ -110,6 +110,230 @@ A full-stack agricultural supply chain analytics platform that tracks produce fr
 
 ---
 
+## 3b. What Actually Powers the Predictions — Django or a Model?
+
+**Short answer: Django runs the logic. Python does the maths. Scikit-learn is just a library, not an external model.**
+
+Here is exactly how each prediction type works, end to end:
+
+### Phase 1 — Rule-Based (What runs in the live system today)
+
+```
+Batch data arrives (transit hours, temperature, crop type)
+        ↓
+Django view calls predictions/engine.py
+        ↓
+Pure Python if/else checks the crop's configured thresholds:
+  if transit_hours > crop.safe_transit_hours_red → score = RED (71–100)
+  elif transit_hours > crop.safe_transit_hours_amber → score = AMBER (41–70)
+  else → score = GREEN (0–40)
+        ↓
+LossPrediction record saved to PostgreSQL
+        ↓
+API returns score + recommendation text to the frontend
+```
+
+**No model file. No weights file. No external service.** It is Python code inside Django reading configuration values from the database and applying them to batch data. The thresholds (e.g. tomatoes go AMBER after 4 hours) come from FAO/RAB benchmarks loaded into the database at setup.
+
+### Phase 2 — scikit-learn LinearRegression (What runs for the MINAGRI loss trend chart)
+
+```
+MINAGRI officer loads the loss trend page
+        ↓
+Django view (MinagriLossTrendView) queries last 6 months of NationalDailyKPI records
+        ↓
+Pandas converts those records to a DataFrame (month numbers + loss rates)
+        ↓
+scikit-learn LinearRegression.fit(X_months, y_loss_rates) — trains on the fly
+        ↓
+model.predict([month_7, month_8, month_9]) → next 3 months estimated loss %
+        ↓
+Django returns actual (6 months) + predicted (3 months) in one JSON response
+        ↓
+Chart.js on the frontend draws both as a line chart with different colours
+```
+
+**scikit-learn here is a Python library, not a downloaded model.** It trains a fresh regression line every time the page loads, using only the system's own historical data. There is no `.pkl` weights file, no Hugging Face download, no API call to any external service. It is the same as using NumPy to fit a line — just with a cleaner API.
+
+### The Designed Phase 2 Upgrade (Post-Launch, 500+ records)
+
+When the system accumulates 500+ completed batches with confirmed loss outcomes, the plan is to:
+1. Train a `RandomForestClassifier` on features: crop type, transit hours, temperature deviation, time of day, distance, market agent history, season
+2. Save the trained model as a `.pkl` file using `joblib`
+3. Replace the rule-based scoring with the classifier's output
+4. Target accuracy: 75–85%
+
+This is not yet done — it requires real data from the system running in production. The **framework** (the `Prediction.phase = ML_MODEL` field, the feature extraction code) is in place.
+
+### Summary Table
+
+| What | Technology | External? | File? | Trains when? |
+|---|---|---|---|---|
+| Phase 1 loss risk score (GREEN/AMBER/RED) | Pure Python if/else in Django | No | No | N/A — rule-based |
+| MINAGRI 3-month trend prediction | scikit-learn LinearRegression in Django | No | No | On every page load, on live DB data |
+| AI Daily Intelligence Brief | Python template strings in Celery task | No | No | Nightly at 01:30, from DB |
+| Phase 2 classifier (future) | scikit-learn RandomForestClassifier | No | `.pkl` (future) | Once on 500+ records, retrained weekly |
+
+---
+
+## 3c. The Seven System Modules — Where Each Is Covered
+
+The system requirements define 7 modules. Here is exactly where each one is implemented, which role interacts with it, and what code covers it.
+
+---
+
+### MODULE 1 — Data Integration Module
+**Purpose:** Aggregate supply chain data from all stakeholder inputs, IoT sensors, GPS feeds, and file uploads into a validated, unified PostgreSQL dataset.
+
+| Data Source | Who Provides It | How It Enters the System | Backend Code |
+|---|---|---|---|
+| Dispatch records + stock updates | Cooperative Manager (web) | REST API POST from React form | `cooperatives/views.py` |
+| GPS coordinates + delivery confirmations | Transporter (mobile) | REST API POST from React Native, offline queue | `transport/views.py` |
+| Receipt confirmations + order data | Distributor (web) | REST API POST from React form | `distribution/views.py` |
+| Collection confirmations + waste reports | Market Agent (mobile) | REST API POST, offline AsyncStorage queue | `market_agents/views.py` |
+| Cold storage temperature + humidity | ESP32 IoT sensor | HTTP POST or MQTT to Django endpoint | `iot/views.py` |
+| Refrigerated vehicle cargo temperature | ESP32 on vehicle | HTTP POST attached to active trip | `iot/views.py` |
+| GPS vehicle route | Transporter mobile (Expo Location API) | REST API POST every 2 minutes during trip | `transport/views.py` (GPSTrack) |
+| QR code scan events | Market Agent / Distributor (mobile scan) | REST API POST from camera scanner | `traceability/views.py` |
+
+**Validation built in:** weight > 0 checks, arrived ≤ collected, GPS Rwanda bounding box check, timestamp sequence validation, duplicate prevention via idempotency keys.
+
+**Who interacts with Module 1:** All 5 operational roles (every role feeds data in). Admin monitors it via the Data Integration Monitor screen.
+
+---
+
+### MODULE 2 — Data Processing and Analytics Module
+**Purpose:** Process raw data into clean KPIs, loss figures, and aggregates. Runs as Celery background jobs — never blocks the web server.
+
+**Technology:** Python + Pandas + NumPy inside Celery tasks, scheduled via django-celery-beat.
+
+| Job | When It Runs | What It Computes | Output Table |
+|---|---|---|---|
+| Nightly full aggregation | 01:00 every night | National + district loss, volume, stage breakdown | `NationalDailyKPI`, `DistrictDailyKPI` |
+| Weekly KPI refresh | Monday 02:00 | Cooperative reliability score (on-time 40% + quality 40% + response 20%) | `CooperativeReliabilityHistory` |
+| Monthly trend computation | 1st of month 03:00 | Season-on-season loss comparison, year-on-year | Queried live from KPI tables |
+| Loss quantification | Triggered on receipt/collection confirm | Transit loss, self-transport loss, market loss per batch | `Batch` model fields |
+| Delivery method aggregation | Nightly | Self-collection vs. transporter loss % per agent | `DeliveryMethodComparison` |
+
+**Who sees Module 2 outputs:**
+- Cooperative Manager → stock analytics, storage performance
+- Distributor → transit loss rates, delivery method comparison chart
+- MINAGRI Officer → national KPIs, district heatmap, trend charts (all powered by this module's output)
+- Admin → data quality flags, integration health
+
+---
+
+### MODULE 3 — Loss Prediction and Bottleneck Detection Module
+**Purpose:** Generate risk scores for batches and collection events before and during transit.
+
+**Technology:** Phase 1 = Python rule-based engine in Django. Phase 2 = scikit-learn LinearRegression (live) + RandomForestClassifier (planned).
+
+| Prediction Type | Who Sees It | When Triggered | Technology |
+|---|---|---|---|
+| Storage risk score (cold storage IoT breach) | Cooperative Manager | On IoT reading save, if threshold exceeded | Rule-based: temp > crop threshold |
+| Transit risk score (batch in transit) | Cooperative Manager, Distributor | Computed when batch dispatched | Rule-based: hours + temp thresholds |
+| Collection Risk Advisory (GREEN/AMBER/RED) | Market Agent (mobile) | Before leaving for self-collection | Rule-based: crop + time of day + distance |
+| Loss trend prediction (3-month forecast) | MINAGRI Officer | On dashboard page load | scikit-learn LinearRegression on 6-month history |
+| Bottleneck detection (route delay hotspots) | MINAGRI Officer | Live query on `/api/v1/analytics/minagri/bottlenecks/` | Pandas aggregation + threshold comparison |
+| Delivery method recommendation | Distributor | When self-transport loss > 10% for an agent | Rule-based threshold on `DeliveryMethodComparison` |
+
+**Screens powered by this module:**
+- `LossPredictionPage.jsx` (MINAGRI)
+- `PredictionsPage.jsx` (MINAGRI)
+- `AlertsPage.jsx` (MINAGRI)
+- `BottleneckDetectionPage.jsx` (MINAGRI)
+- `StorageAnalytics.jsx` (Cooperative Manager)
+- Collection Risk Advisory panel in mobile market agent dashboard
+
+---
+
+### MODULE 4 — Transparency and Traceability Module
+**Purpose:** Provide complete end-to-end visibility into each batch from cooperative dispatch to waste report. QR code scan events serve as tamper-evident handover anchors.
+
+**Technology:** `Batch` model in PostgreSQL aggregating records from all 5 handover points. QR code generated by `qrcode` Python library. `QRCodeScanEvent` records every scan.
+
+| Handover Point | Who Records It | What Is Captured | Loss Calculated |
+|---|---|---|---|
+| HP1: Cooperative dispatches | Cooperative Manager | Dispatch weight, quality grade, QR code, timestamp | Baseline — no loss yet |
+| HP2: Distributor receives | Distributor | Weight received, quality grade, QR scan | Transit loss Leg 1 = dispatched − received |
+| HP3: Market Agent collects at distributor | Market Agent | Quantity collected, QR scan, delivery method | Self-transport tracking begins |
+| HP4: Market Agent arrives at stall | Market Agent | Quantity arrived, condition code | Self-transport loss = collected − arrived |
+| HP5: End-of-day waste report | Market Agent | Sold, discarded, discard reason | Market loss = discarded |
+
+**Who uses Module 4:**
+- Cooperative Manager → `TraceabilityView.jsx` — search own dispatched batches
+- Distributor → `Traceability` screen — full journey of received batches
+- Market Agent (mobile) → Order History — own orders with loss outcomes
+- Admin → can query any batch for audit purposes
+
+**Key endpoint:** `GET /api/v1/traceability/batches/{id}/` returns the complete journey timeline in one response.
+
+---
+
+### MODULE 5 — Visualization Dashboard Module
+**Purpose:** Role-based dashboards showing supply chain insights appropriate to each stakeholder. Charts, maps, KPI cards — no raw data tables for MINAGRI.
+
+**Technology:** Chart.js (trend lines, bar charts, pie charts), Leaflet.js (Rwanda district heatmap + GPS routes), Tailwind CSS for responsive layouts.
+
+| Role | Key Visual Components | Screens |
+|---|---|---|
+| Admin | Data sync health indicators, audit log feed, session list | `AdminDashboard.jsx` |
+| Cooperative Manager | IoT storage gauges (temp + humidity), stock-by-crop bar chart, produce request inbox cards | `CooperativeDashboard.jsx`, `StorageAnalytics.jsx` |
+| Transporter | Active trip GPS map, cold chain temperature gauge, trip request cards with Accept/Decline | `ActiveTripScreen.js` (mobile) |
+| Distributor | Cooperative directory cards with reliability stars, receipt confirmation queue, delivery method loss comparison chart | `DistributorDashboard.jsx`, `DistributionAnalytics.jsx` |
+| Market Agent | Collection risk advisory traffic light (large, mobile-optimised), stall stock on hand (large number), quick-entry waste report form | `DashboardScreen.js` (mobile) |
+| MINAGRI Officer | Rwanda district heatmap (Leaflet), AI Daily Intelligence Brief panel, seasonal trend chart with year-on-year overlay | `MinagriDashboard.jsx`, `DistrictPerformancePage.jsx` |
+
+**Responsive breakpoints:** 375px (mobile), 768px (tablet), 1280px+ (desktop) — all web dashboards tested at all three.
+
+---
+
+### MODULE 6 — AI Insights Engine
+**Purpose:** Replace the Supply Chain Analyst role entirely. Runs nightly as a Celery task and auto-generates plain-English intelligence for the MINAGRI Officer. No human intervention required.
+
+**Technology:** Python template-based NLG inside a Celery task (`generate_daily_insights`). Queries the processed analytics tables and fills structured sentence templates. Output stored in `DailyBriefBundle` table and displayed the next morning.
+
+**Who uses it:** MINAGRI Officer only.
+
+**What it generates nightly:**
+| Insight Type | Example Output |
+|---|---|
+| National loss summary | "Rwanda lost 312 tons (8.4%) of tracked produce this week — up 1.2% vs last week." |
+| Stage breakdown | "Transit losses accounted for 41% of total losses this week, the highest stage." |
+| Route alert | "Kigali–Musanze route loss rate increased by 6.2% vs 30-day average." |
+| Cold chain alert | "Facility: Rubavu Cold Store breached 28°C for 4.2 hours — 3 batches at risk." |
+| Delivery method insight | "Self-collection loss: 11.8% vs transporter delivery: 4.2%. Switching perishables could save ~18 tons/month." |
+| Cooperative highlight | "Top performer this week: Bugesera Farmers Coop — 98% on-time, Grade A consistency." |
+| Market agent alert | "Agent: Uwase Josephine — self-collection loss above 15% for 4 consecutive weeks. Recommend delivery switch." |
+| Seasonal outlook | "Tomato harvest season peaks in 10 days. Historical loss rate during this period: 14–18%." |
+
+**Screens:** `MinagriDashboard.jsx` (AI brief panel at top of page), `AlertsPage.jsx` (critical alerts from Module 6 output).
+
+**Backend:** `ai_insights/` app — `AIInsight` model, `DailyBriefBundle` model, Celery task `generate_daily_insights` scheduled at 01:30 nightly.
+
+---
+
+### MODULE 7 — Reporting Module
+**Purpose:** Generate and export supply chain performance reports. All reports are produced by Celery background jobs and stored for download. No user waits in real time.
+
+**Technology:** ReportLab (PDF), openpyxl (Excel .xlsx), Pandas (CSV streaming). Reports queued asynchronously via Celery with status: QUEUED → GENERATING → READY.
+
+| Report | Who Can Download | Format | Schedule | Screens |
+|---|---|---|---|---|
+| National KPI Summary | MINAGRI Officer | PDF | Weekly (Monday) | `NationalReports.jsx` |
+| District Loss Report | MINAGRI Officer | PDF | Monthly (1st) | `NationalReports.jsx` |
+| Crop Loss Report | MINAGRI Officer | PDF | Monthly (1st) | `NationalReports.jsx` |
+| Cold Chain Compliance Report | MINAGRI Officer | PDF | Monthly (1st) | `ColdChainPage.jsx` |
+| Delivery Method Loss Comparison | Distributor (own agents) + MINAGRI (all) | PDF + Excel | On demand | `DistributorReports.jsx`, `CustomReportsPage.jsx` |
+| Stage-Specific Loss Breakdown | Distributor + Cooperative Manager + MINAGRI | PDF | On demand | `RoleReportsPage.jsx` |
+| Per-Batch Traceability Report | Distributor + Cooperative Manager | PDF | On demand per batch | `TraceabilityView.jsx` |
+| Market-Level Waste Report | Distributor (own agents) | Excel | On demand | `DistributorReports.jsx` |
+| CSV Export (role-scoped, live) | All roles (own data only) | CSV streaming | On demand | `RoleReportsPage.jsx` |
+
+**Backend:** `reports/` app — `Report` model with file path and status; `reports/views.py` generates reports inline or queues Celery job; `reports/urls.py` exposes `/api/v1/reports/export/` for streaming CSV.
+
+---
+
 ## 4. Supply Chain Flow — Role by Role
 
 ### The Five Handover Points (Loss Calculated at Each)

@@ -155,6 +155,9 @@ class Command(BaseCommand):
         self._seed_batches(coops, transporters, distributors, agents, crops)
         self._seed_storage_facilities(coops)
         self._seed_pending_requests(coops, distributors, crops)
+        self._seed_warehouse_manager(coops)
+        self._seed_ai_insights()
+        self._seed_access_requests()
 
         self.stdout.write(self.style.SUCCESS('\nDemo data seeded successfully!\n'))
         self._print_credentials()
@@ -167,11 +170,21 @@ class Command(BaseCommand):
         from apps.distribution.models import Order, CollectionNotice, SupplyAgreement, ProduceRequest, Distributor, DistributorMarketAgentLink
         from apps.traceability.models import Batch
         from apps.transport.models import Trip, TransportRequest, Vehicle, Transporter
-        from apps.cooperatives.models import CooperativeStock, Cooperative, ColdStorageFacility
+        from apps.cooperatives.models import (
+            CooperativeStock, Cooperative, ColdStorageFacility,
+            WarehouseManager, WarehouseRentalRequest,
+        )
         from apps.iot.models import IoTReading
+        from apps.ai_insights.models import AIInsight, DailyBriefBundle
+        from apps.authentication.models import AccessRequest
+
+        # National-level, not tied to any one demo user — clear on every reset.
+        DailyBriefBundle.objects.all().delete()
+        AIInsight.objects.all().delete()
+        AccessRequest.objects.filter(email__endswith='@applicant.demo').delete()
 
         demo_usernames = (
-            ['demo.admin', 'demo.minagri'] +
+            ['demo.admin', 'demo.minagri', 'wh.mugisha'] +
             [cfg['manager']['username'] for cfg in DISTRICT_CFG.values()] +
             ['trans.kalinda', 'trans.gasana', 'dist.kigali', 'dist.north',
              'agent.kimironko', 'agent.nyabugogo', 'agent.remera']
@@ -179,14 +192,22 @@ class Command(BaseCommand):
         self.stdout.write('  Removing existing demo data...')
         # Delete in dependency order (deepest first)
         IoTReading.objects.filter(facility__cooperative__manager__username__in=demo_usernames).delete()
+        IoTReading.objects.filter(facility__warehouse_manager__user__username__in=demo_usernames).delete()
+        WarehouseRentalRequest.objects.filter(facility__warehouse_manager__user__username__in=demo_usernames).delete()
+        ColdStorageFacility.objects.filter(warehouse_manager__user__username__in=demo_usernames).delete()
+        WarehouseManager.objects.filter(user__username__in=demo_usernames).delete()
         ColdStorageFacility.objects.filter(cooperative__manager__username__in=demo_usernames).delete()
         WasteReport.objects.filter(market_agent__user__username__in=demo_usernames).delete()
         CollectionConfirmation.objects.filter(market_agent__user__username__in=demo_usernames).delete()
         Order.objects.filter(distributor__user__username__in=demo_usernames).delete()
         CollectionNotice.objects.filter(distributor__user__username__in=demo_usernames).delete()
+        # Batch.supply_agreement is a protected FK — batches must go before the SupplyAgreement/
+        # ProduceRequest chain they may reference.
+        Batch.objects.filter(cooperative__manager__username__in=demo_usernames).delete()
+        SupplyAgreement.objects.filter(produce_request__distributor__user__username__in=demo_usernames).delete()
+        SupplyAgreement.objects.filter(produce_request__cooperative__manager__username__in=demo_usernames).delete()
         ProduceRequest.objects.filter(distributor__user__username__in=demo_usernames).delete()
         ProduceRequest.objects.filter(cooperative__manager__username__in=demo_usernames).delete()
-        Batch.objects.filter(cooperative__manager__username__in=demo_usernames).delete()
         Trip.objects.filter(transport_request__transporter__user__username__in=demo_usernames).delete()
         TransportRequest.objects.filter(transporter__user__username__in=demo_usernames).delete()
         TransportRequest.objects.filter(requested_by_cooperative__manager__username__in=demo_usernames).delete()
@@ -409,14 +430,14 @@ class Command(BaseCommand):
                 'phone': '+250788300001', 'email': 's.nkurunziza@chainsight.demo',
                 'company': 'Kigali Fresh Distributors Ltd',
                 'warehouse': 'Kimironko Wholesale Market, Kigali',
-                'district': 'Kigali',
+                'district': 'Kigali', 'gps': (-1.9506, 30.1044),
             },
             {
                 'username': 'dist.north', 'first_name': 'Esperance', 'last_name': 'Ingabire',
                 'phone': '+250788300002', 'email': 'e.ingabire@chainsight.demo',
                 'company': 'Northern Rwanda Distributors',
                 'warehouse': 'Nyabugogo Trade Hub, Kigali',
-                'district': 'Kigali',
+                'district': 'Kigali', 'gps': (-1.9347, 30.0586),
             },
         ]
 
@@ -439,6 +460,8 @@ class Command(BaseCommand):
                 defaults=dict(
                     company_name=dd['company'],
                     warehouse_location=dd['warehouse'],
+                    warehouse_gps_lat=dd['gps'][0],
+                    warehouse_gps_lng=dd['gps'][1],
                     district=dd['district'],
                     contact_phone=dd['phone'],
                 ),
@@ -511,7 +534,7 @@ class Command(BaseCommand):
 
     def _seed_batches(self, coops, transporters, distributors, agents, crops):
         from apps.traceability.models import Batch
-        from apps.transport.models import TransportRequest, Trip, Vehicle
+        from apps.transport.models import TransportRequest, Trip, Vehicle, GPSTrack
         from apps.distribution.models import (
             Distributor, CollectionNotice, Order,
         )
@@ -574,7 +597,11 @@ class Command(BaseCommand):
                         transporter=trans,
                         leg_number=1,
                         pickup_location=cfg['pickup_loc'],
+                        pickup_gps_lat=cfg['gps'][0],
+                        pickup_gps_lng=cfg['gps'][1],
                         destination=f"{dist.warehouse_location}",
+                        destination_gps_lat=dist.warehouse_gps_lat,
+                        destination_gps_lng=dist.warehouse_gps_lng,
                         cargo_description=f"{crop_name} — Grade {grade}",
                         estimated_cargo_weight_kg=dispatch_kg,
                         required_pickup_datetime=dispatch_dt + timedelta(hours=1),
@@ -675,6 +702,24 @@ class Command(BaseCommand):
                             market_spoilage_loss_pct=spoilage_pct,
                             idempotency_key=uuid.uuid4(),
                         )
+                    else:
+                        # Trip record — pickup confirmed, delivery not yet, so the cooperative's
+                        # "Live Location" map has something to actually show for this batch.
+                        actual_pickup = dispatch_dt + timedelta(hours=1, minutes=random.randint(0, 30))
+                        trip = Trip.objects.create(
+                            transport_request=tr,
+                            actual_pickup_datetime=actual_pickup,
+                            pickup_confirmed_at=actual_pickup,
+                        )
+                        lerp = lambda a, b, t: a + (b - a) * t
+                        for i, progress in enumerate((0.2, 0.35, 0.45)):
+                            GPSTrack.objects.create(
+                                trip=trip,
+                                latitude=round(lerp(cfg['gps'][0], float(dist.warehouse_gps_lat), progress), 6),
+                                longitude=round(lerp(cfg['gps'][1], float(dist.warehouse_gps_lng), progress), 6),
+                                speed_kmh=round(random.uniform(35, 55), 1),
+                                timestamp=actual_pickup + timedelta(minutes=15 * (i + 1)),
+                            )
 
                     batch_count += 1
 
@@ -761,30 +806,211 @@ class Command(BaseCommand):
             count += 1
         self.stdout.write(f'    {count} pending produce requests created')
 
+    # ── Warehouse manager (independent cold-storage operator) ───────────────
+
+    def _seed_warehouse_manager(self, coops):
+        from apps.authentication.models import User
+        from apps.cooperatives.models import WarehouseManager, ColdStorageFacility, WarehouseRentalRequest
+        from apps.iot.models import IoTReading
+
+        self.stdout.write('  Seeding warehouse manager...')
+
+        user, _ = User.objects.get_or_create(
+            username='wh.mugisha',
+            defaults=dict(
+                first_name='Bosco', last_name='Mugisha',
+                email='b.mugisha@chainsight.demo', phone_number='+250788500001',
+                role='WAREHOUSE_MANAGER', organization_name='Mugisha Cold Chain Ltd',
+                is_verified=True, must_change_password=False,
+            ),
+        )
+        user.set_password(DEMO_PASSWORD)
+        user.save()
+
+        wh, _ = WarehouseManager.objects.get_or_create(
+            user=user,
+            defaults=dict(company_name='Mugisha Cold Chain Ltd', district='Kigali',
+                           contact_phone='+250788500001'),
+        )
+
+        facility, created = ColdStorageFacility.objects.get_or_create(
+            warehouse_manager=wh, name='Gikondo Cold Hub',
+            defaults=dict(
+                capacity_kg=1200, location_description='Gikondo Industrial Zone, Kigali',
+                gps_latitude=-1.9706, gps_longitude=30.0764,
+                has_iot_sensor=True, sensor_device_id='ESP32-GKD-01',
+                is_available_for_rent=True, rental_price_per_month=180000,
+                temp_threshold_amber_celsius=15.0, temp_threshold_red_celsius=20.0,
+                humidity_threshold_percent=85.0, is_active=True,
+            ),
+        )
+        if created:
+            IoTReading.objects.create(
+                facility=facility, temperature_celsius=13.5,
+                humidity_percent=68.0, timestamp=timezone.now(),
+            )
+
+        nyanza_coop, _ = coops['Nyanza']
+        WarehouseRentalRequest.objects.get_or_create(
+            cooperative=nyanza_coop, facility=facility,
+            defaults=dict(
+                requested_capacity_kg=250,
+                notes='Need overflow storage capacity during harvest peak.',
+                status='PENDING',
+            ),
+        )
+
+        self.stdout.write('    1 warehouse manager with 1 listed facility and 1 pending rental request ready')
+
+    # ── AI Insights — Daily Intelligence Brief (MINAGRI dashboard) ───────────
+    # Mirrors apps.ai_insights.tasks.generate_daily_insights(), but computed over the most
+    # recent seeded month instead of literally "yesterday" (which has no data in a historical
+    # demo dataset) so the MINAGRI dashboard has a real, data-driven brief to show.
+
+    def _seed_ai_insights(self):
+        from django.db.models import Sum, Count
+        from apps.traceability.models import Batch
+        from apps.ai_insights.models import AIInsight, DailyBriefBundle
+
+        self.stdout.write('  Seeding AI Insights daily brief...')
+
+        year, month = MONTHS[-1]
+        period_start = date(year, month, 1)
+        period_end = date(year, month, 28)  # all seeded batches dispatch on day <= 28
+
+        batches = Batch.objects.filter(
+            dispatch_timestamp__year=year, dispatch_timestamp__month=month,
+            current_status='COMPLETED',
+        )
+        agg = batches.aggregate(
+            total_batches=Count('id'),
+            total_volume=Sum('dispatch_weight_kg'),
+            total_transit_loss=Sum('transit_loss_leg1_kg'),
+            total_self_transport=Sum('self_transport_loss_kg'),
+            total_market=Sum('market_spoilage_loss_kg'),
+            total_loss=Sum('total_loss_kg'),
+        )
+        total_vol = float(agg['total_volume'] or 0)
+        total_loss = float(agg['total_loss'] or 0)
+        loss_pct = round((total_loss / total_vol * 100), 2) if total_vol > 0 else 0
+
+        insights = []
+
+        insights.append(AIInsight.objects.create(
+            insight_type=AIInsight.InsightType.NATIONAL_LOSS,
+            title='National Post-Harvest Loss Summary',
+            content=(
+                f"Total post-harvest loss in {period_start.strftime('%B %Y')} was {total_loss:,.1f} kg "
+                f"across {agg['total_batches']} completed batches, representing {loss_pct}% of dispatched volume."
+            ),
+            data_period_start=period_start, data_period_end=period_end,
+        ))
+
+        district_rows = list(
+            batches.values('cooperative__district').annotate(
+                vol=Sum('dispatch_weight_kg'), loss=Sum('total_loss_kg'), count=Count('id'),
+            )
+        )
+        worst = None
+        for row in district_rows:
+            vol = float(row['vol'] or 0)
+            row['rate'] = round((float(row['loss'] or 0) / vol * 100), 2) if vol > 0 else 0
+            if not worst or row['rate'] > worst['rate']:
+                worst = row
+        if worst and worst['rate'] > 8:
+            district_name = worst['cooperative__district'] or 'Unknown'
+            insights.append(AIInsight.objects.create(
+                insight_type=AIInsight.InsightType.ROUTE_ALERT,
+                title=f'High Loss Alert: {district_name} District',
+                content=(
+                    f"{district_name} district recorded a {worst['rate']}% loss rate in {period_start.strftime('%B %Y')} "
+                    f"across {worst['count']} batches — above the cooperative-level alert threshold. "
+                    f"Recommend reviewing transit conditions and cold-chain handling on this route."
+                ),
+                data_period_start=period_start, data_period_end=period_end,
+                is_critical=worst['rate'] > 12,
+                related_district=district_name,
+            ))
+
+        stages = {
+            'Transit (Leg 1)': float(agg['total_transit_loss'] or 0),
+            'Self-transport':  float(agg['total_self_transport'] or 0),
+            'Market spoilage': float(agg['total_market'] or 0),
+        }
+        top_stage = max(stages, key=stages.get)
+        insights.append(AIInsight.objects.create(
+            insight_type=AIInsight.InsightType.STAGE_BREAKDOWN,
+            title='Loss Stage Breakdown',
+            content=(
+                f"The highest loss stage in {period_start.strftime('%B %Y')} was {top_stage} "
+                f"at {stages[top_stage]:,.1f} kg. " + ' | '.join(f'{k}: {v:,.1f}kg' for k, v in stages.items())
+            ),
+            data_period_start=period_start, data_period_end=period_end,
+        ))
+
+        bundle = DailyBriefBundle.objects.create(
+            brief_date=date.today(),
+            summary_text=(
+                f"{agg['total_batches']} batches tracked in {period_start.strftime('%B %Y')} · "
+                f"{loss_pct}% national loss rate · {len(insights)} insights generated."
+            ),
+        )
+        bundle.insights.set(insights)
+
+        self.stdout.write(f'    1 daily brief with {len(insights)} insights ready')
+
+    # ── Pending access requests (so Admin → Registration Queue has something) ─
+
+    def _seed_access_requests(self):
+        from apps.authentication.models import AccessRequest, User
+
+        self.stdout.write('  Seeding pending access requests...')
+        requests = [
+            dict(full_name='Eric Mugabo', role_requested='COOPERATIVE_MANAGER',
+                 organization_name='Gakenke Farmers Cooperative', district='Gakenke',
+                 phone_number='+250788900001', email='e.mugabo@applicant.demo', acknowledgement=True),
+            dict(full_name='Claudine Uwizeye', role_requested='DISTRIBUTOR',
+                 organization_name='Huye Fresh Produce Ltd', district='Huye',
+                 phone_number='+250788900002', email='c.uwizeye@applicant.demo', acknowledgement=True),
+            dict(full_name='Patrick Niyonsenga', role_requested='MARKET_AGENT',
+                 organization_name='Remera Vegetables Market', district='Kigali',
+                 phone_number='+250788900003', email='p.niyonsenga@applicant.demo', acknowledgement=True),
+        ]
+        count = 0
+        for r in requests:
+            if not User.objects.filter(phone_number=r['phone_number']).exists():
+                AccessRequest.objects.get_or_create(email=r['email'], defaults=r)
+                count += 1
+        self.stdout.write(f'    {count} pending access requests ready')
+
     # ── Credentials printout ─────────────────────────────────────────────────
 
     def _print_credentials(self):
+        # Login only matches on email or phone_number (see LoginSerializer) — the
+        # `username` field is for DB/admin reference only and will NOT log in.
         lines = [
             '',
-            '=' * 60,
+            '=' * 70,
             ' DEMO LOGIN CREDENTIALS  (password: Demo1234!)',
-            '=' * 60,
-            f'  {"Role":<25} {"Username":<22}',
-            '-' * 60,
-            f'  {"Admin":<25} {"demo.admin":<22}',
-            f'  {"MINAGRI Officer":<25} {"demo.minagri":<22}',
-            f'  {"Cooperative (Musanze)":<25} {"j.habimana@chainsight.demo":<22}',
-            f'  {"Cooperative (Rubavu)":<25} {"coop.rubavu":<22}',
-            f'  {"Cooperative (Nyanza)":<25} {"coop.nyanza":<22}',
-            f'  {"Cooperative (Kigali)":<25} {"coop.kigali":<22}',
-            f'  {"Transporter 1":<25} {"trans.kalinda":<22}',
-            f'  {"Transporter 2":<25} {"trans.gasana":<22}',
-            f'  {"Distributor 1":<25} {"dist.kigali":<22}',
-            f'  {"Distributor 2":<25} {"dist.north":<22}',
-            f'  {"Market Agent (Kimironko)":<25} {"agent.kimironko":<22}',
-            f'  {"Market Agent (Nyabugogo)":<25} {"agent.nyabugogo":<22}',
-            f'  {"Market Agent (Remera)":<25} {"agent.remera":<22}',
-            '=' * 60,
+            ' Log in with the EMAIL below - usernames do not work as login credentials.',
+            '=' * 70,
+            f'  {"Role":<25} {"Login email":<32}',
+            '-' * 70,
+            f'  {"Admin":<25} {"admin@chainsight.demo":<32}',
+            f'  {"MINAGRI Officer":<25} {"c.nzeyimana@minagri.demo":<32}',
+            f'  {"Cooperative (Musanze)":<25} {"j.habimana@chainsight.demo":<32}',
+            f'  {"Cooperative (Rubavu)":<25} {"i.mukamana@chainsight.demo":<32}',
+            f'  {"Cooperative (Nyanza)":<25} {"mc.uwimana@chainsight.demo":<32}',
+            f'  {"Cooperative (Kigali)":<25} {"p.habimana@chainsight.demo":<32}',
+            f'  {"Transporter 1":<25} {"a.kalinda@chainsight.demo":<32}',
+            f'  {"Transporter 2":<25} {"e.gasana@chainsight.demo":<32}',
+            f'  {"Distributor 1":<25} {"s.nkurunziza@chainsight.demo":<32}',
+            f'  {"Distributor 2":<25} {"e.ingabire@chainsight.demo":<32}',
+            f'  {"Market Agent (Kimironko)":<25} {"g.uwera@chainsight.demo":<32}',
+            f'  {"Market Agent (Nyabugogo)":<25} {"e.nshimiyimana@chainsight.demo":<32}',
+            f'  {"Market Agent (Remera)":<25} {"d.mukankusi@chainsight.demo":<32}',
+            f'  {"Warehouse Manager":<25} {"b.mugisha@chainsight.demo":<32}',
+            '=' * 70,
             '',
         ]
         for line in lines:

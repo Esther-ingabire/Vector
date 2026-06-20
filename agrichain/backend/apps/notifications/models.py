@@ -21,6 +21,11 @@ class Notification(models.Model):
         # Transporter
         TRANSPORT_REQUEST_RECEIVED  = 'TRANSPORT_REQUEST_RECEIVED', 'New Transport Request'
         COLD_CHAIN_ALERT            = 'COLD_CHAIN_ALERT',           'Cold Chain Temperature Breach'
+        INCIDENT_REPORTED           = 'INCIDENT_REPORTED',          'Transporter Reported an Incident'
+        TRIP_DELAY_ALERT            = 'TRIP_DELAY_ALERT',           'Possible Delay — No Recent GPS Update'
+        # Warehouse Manager / Cooperative (storage rental)
+        WAREHOUSE_RENTAL_REQUESTED  = 'WAREHOUSE_RENTAL_REQUESTED', 'New Warehouse Rental Request'
+        WAREHOUSE_RENTAL_RESPONSE   = 'WAREHOUSE_RENTAL_RESPONSE',  'Warehouse Rental Request Update'
         # Distributor
         COOP_RESPONSE               = 'COOP_RESPONSE',              'Cooperative Responded to Request'
         BATCH_IN_TRANSIT            = 'BATCH_IN_TRANSIT',           'Batch Is Now In Transit'

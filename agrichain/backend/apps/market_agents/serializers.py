@@ -102,6 +102,7 @@ class CollectionNoticeForAgentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     crop_name = serializers.SerializerMethodField()
     available_quantity_kg = serializers.DecimalField(max_digits=10, decimal_places=2)
+    price_per_kg = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
     collection_deadline = serializers.DateTimeField()
     pickup_location = serializers.CharField()
     distributor_name = serializers.SerializerMethodField()

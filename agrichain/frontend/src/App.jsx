@@ -28,6 +28,7 @@ import MinagriLayout from './pages/minagri/MinagriLayout.jsx'
 // But we provide a fallback web view for browser access
 import TransporterLayout from './pages/transporter/TransporterLayout.jsx'
 import MarketAgentLayout from './pages/market_agent/MarketAgentLayout.jsx'
+import WarehouseLayout from './pages/warehouse/WarehouseLayout.jsx'
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/minagri/*" element={<ProtectedRoute roles={['MINAGRI_OFFICER']}><MinagriLayout /></ProtectedRoute>} />
           <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER']}><TransporterLayout /></ProtectedRoute>} />
           <Route path="/market-agent/*" element={<ProtectedRoute roles={['MARKET_AGENT']}><MarketAgentLayout /></ProtectedRoute>} />
+          <Route path="/warehouse/*" element={<ProtectedRoute roles={['WAREHOUSE_MANAGER']}><WarehouseLayout /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -30,4 +30,8 @@ export const distributionApi = {
   // Analytics
   getDeliveryMethodComparison: (params) => apiClient.get('/analytics/delivery-comparison/', { params }),
   getDistributionAnalytics: (params) => apiClient.get('/analytics/distribution/', { params }),
+  // Agent link request management (distributor approves/rejects)
+  getPendingAgentRequests: () => apiClient.get('/distribution/market-agents/?include_pending=true'),
+  approveLinkRequest: (linkId) => apiClient.post(`/distribution/market-agents/link/${linkId}/approve/`),
+  rejectLinkRequest:  (linkId) => apiClient.delete(`/distribution/market-agents/link/${linkId}/approve/`),
 }

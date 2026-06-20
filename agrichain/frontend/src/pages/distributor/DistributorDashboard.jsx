@@ -29,7 +29,10 @@ const FALLBACK_IMAGES = [
 ]
 
 function getCropImage(crops = [], coopId = 0) {
-  for (const c of crops) {
+  const list = typeof crops === 'string'
+    ? crops.split(',').map(s => s.trim())
+    : crops
+  for (const c of list) {
     const img = CROP_IMAGES[(c || '').toLowerCase()]
     if (img) return img
   }

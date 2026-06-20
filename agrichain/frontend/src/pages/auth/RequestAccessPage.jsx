@@ -8,12 +8,16 @@ import ChainSightLogo from '../../components/ui/ChainSightLogo.jsx'
 import { authApi } from '../../api/auth.js'
 import toast from 'react-hot-toast'
 
-// Transporter accounts are created by the Cooperative Manager who contracts them.
+// Individual transporters contracted directly by a cooperative are still added by that
+// cooperative's manager. This form is for independent transport companies who want their
+// own account, and for the other roles that have always self-registered.
 // MINAGRI/RAB Officer accounts are created directly by the System Administrator.
 const ROLES = [
   { value: 'COOPERATIVE_MANAGER', label: 'Cooperative Manager', docs: ['National ID', 'Cooperative Registration Certificate'] },
   { value: 'DISTRIBUTOR',         label: 'Distributor',         docs: ['National ID', 'Company Registration'] },
   { value: 'MARKET_AGENT',        label: 'Market Agent',        docs: ['National ID'] },
+  { value: 'TRANSPORTER',         label: 'Transport Company',   docs: ['National ID', 'Vehicle Registration / Driving Licence'] },
+  { value: 'WAREHOUSE_MANAGER',   label: 'Warehouse Manager',   docs: ['National ID', 'Business Registration'] },
 ]
 
 const DISTRICTS = [

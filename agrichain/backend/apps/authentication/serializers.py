@@ -132,13 +132,25 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(required=False)
+
     class Meta:
         model  = User
         fields = ["username","first_name","last_name","email","phone_number","role","organization_name","district","language_preference"]
 
     def create(self, validated_data):
+        import re
+        phone = validated_data.get("phone_number", "")
+        digits = re.sub(r'\D', '', phone)[-8:] or secrets.token_hex(4)
+        role_prefix = validated_data.get("role", "user").lower().replace("_", ".")[:8]
+        base = validated_data.pop("username", None) or f"{role_prefix}.{digits}"
+        username = base
+        suffix = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base}.{suffix}"
+            suffix += 1
         temp_password = secrets.token_urlsafe(16)
-        user = User(**validated_data)
+        user = User(username=username, **validated_data)
         user.set_password(temp_password)
         user.must_change_password = True
         user.is_verified = False

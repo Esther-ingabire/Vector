@@ -4,7 +4,7 @@ import {
   PointElement, LineElement, BarElement, Tooltip, Legend,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
-import { TrendingDown, TrendingUp, Package, AlertTriangle, MapPin, FileText, Loader } from 'lucide-react'
+import { TrendingDown, TrendingUp, Package, AlertTriangle, MapPin, FileText, Loader, Brain, Route } from 'lucide-react'
 import { analyticsApi } from '../../api/analytics.js'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend)
@@ -51,6 +51,7 @@ const barOptions = {
 
 export default function MinagriDashboard() {
   const [data, setData]       = useState(null)
+  const [brief, setBrief]     = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -58,7 +59,13 @@ export default function MinagriDashboard() {
       .then(r => setData(r.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false))
+    analyticsApi.getDailyBrief()
+      .then(r => setBrief(r.data?.id ? r.data : null))
+      .catch(() => setBrief(null))
   }, [])
+
+  const routeAlerts = (brief?.insights ?? []).filter(i => i.insight_type === 'ROUTE_ALERT')
+  const otherInsights = (brief?.insights ?? []).filter(i => i.insight_type !== 'ROUTE_ALERT')
 
   const kpis = {
     loss_rate_pct:            data?.loss_rate_pct            ?? '—',
@@ -109,6 +116,53 @@ export default function MinagriDashboard() {
         <h1 className="text-2xl font-bold text-gray-900">MINAGRI Officer Dashboard</h1>
         <p className="text-sm text-gray-500 mt-0.5">National agricultural supply chain overview · Rwanda</p>
       </div>
+
+      {/* AI Daily Intelligence Brief */}
+      {brief && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="card lg:col-span-2 bg-gradient-to-br from-primary-50 to-white border-primary-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Brain className="w-4 h-4 text-primary-600" />
+              <h2 className="font-semibold text-gray-900">AI Daily Intelligence Brief</h2>
+              <span className="text-xs text-gray-400 ml-auto">{brief.brief_date}</span>
+            </div>
+            <p className="text-sm text-gray-700 font-medium mb-4">{brief.summary_text}</p>
+            <div className="space-y-3">
+              {otherInsights.map(insight => (
+                <div key={insight.id} className="pl-3 border-l-2 border-primary-200">
+                  <p className="text-sm font-semibold text-gray-800">{insight.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{insight.content}</p>
+                </div>
+              ))}
+              {otherInsights.length === 0 && (
+                <p className="text-sm text-gray-400">No narrative insights in this brief.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="flex items-center gap-2 mb-3">
+              <Route className="w-4 h-4 text-warning-500" />
+              <h2 className="font-semibold text-gray-900">Route Alerts</h2>
+            </div>
+            {routeAlerts.length === 0 ? (
+              <p className="text-sm text-gray-400">No active route alerts.</p>
+            ) : (
+              <div className="space-y-3">
+                {routeAlerts.map(alert => (
+                  <div key={alert.id} className={`p-3 rounded-xl ${alert.is_critical ? 'bg-danger-50' : 'bg-warning-50'}`}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <AlertTriangle className={`w-3.5 h-3.5 ${alert.is_critical ? 'text-danger-500' : 'text-warning-500'}`} />
+                      <p className={`text-sm font-semibold ${alert.is_critical ? 'text-danger-600' : 'text-warning-600'}`}>{alert.title}</p>
+                    </div>
+                    <p className="text-xs text-gray-500">{alert.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 4 KPI cards */}
       <div className="grid grid-cols-4 gap-4">

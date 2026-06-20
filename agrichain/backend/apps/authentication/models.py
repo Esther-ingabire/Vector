@@ -24,6 +24,7 @@ class User(AbstractUser):
         DISTRIBUTOR         = 'DISTRIBUTOR',         'Distributor'
         MARKET_AGENT        = 'MARKET_AGENT',        'Market Agent'
         MINAGRI_OFFICER     = 'MINAGRI_OFFICER',     'MINAGRI Officer'
+        WAREHOUSE_MANAGER   = 'WAREHOUSE_MANAGER',   'Warehouse Manager'
 
     class Language(models.TextChoices):
         ENGLISH    = 'EN', 'English'

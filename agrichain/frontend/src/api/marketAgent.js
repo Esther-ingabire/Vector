@@ -3,9 +3,17 @@ import apiClient from './client.js'
 export const marketAgentApi = {
   getMyProfile:       ()     => apiClient.get('/market-agents/agents/my/'),
   getMyAnalytics:     ()     => apiClient.get('/market-agents/agents/my-analytics/'),
-  getNotices:         ()     => apiClient.get('/market-agents/notices/'),
+  getNotices:         (params) => apiClient.get('/market-agents/notices/', { params }),
   getCollections:     ()     => apiClient.get('/market-agents/collections/'),
   recordCollection:   (data) => apiClient.post('/market-agents/collections/', data),
   getWasteReports:    ()     => apiClient.get('/market-agents/waste-reports/'),
   submitWasteReport:  (data) => apiClient.post('/market-agents/waste-reports/', data),
+  // Orders — agent places orders against distributor stock listings
+  getMyOrders:        ()              => apiClient.get('/distribution/orders/'),
+  placeOrder:         (data)          => apiClient.post('/distribution/orders/', data),
+  // Distributor discovery & linking
+  getAllDistributors:  ()              => apiClient.get('/distribution/distributors/'),
+  getNearbyDistributors: (params)      => apiClient.get('/distribution/distributors/nearby/', { params }),
+  getMyLinks:         ()              => apiClient.get('/distribution/market-agents/my-links/'),
+  requestLink:        (distributorId) => apiClient.post('/distribution/market-agents/request-link/', { distributor_id: distributorId }),
 }

@@ -1,0 +1,71 @@
+import mapboxgl from 'mapbox-gl'
+
+export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ''
+mapboxgl.accessToken = MAPBOX_TOKEN
+
+export const MAPBOX_STYLE = 'mapbox://styles/mapbox/streets-v12'
+
+// Rwanda center, [lng, lat] — Mapbox coordinate order (opposite of the Leaflet [lat, lng] used elsewhere in this codebase)
+export const RWANDA_CENTER = [29.8739, -1.9403]
+
+/**
+ * Real road-following route between two points via the Mapbox Directions API.
+ * Returns { coordinates: [[lng,lat], ...], distanceKm, durationMin } or null on failure.
+ */
+export async function fetchDrivingRoute(origin, destination) {
+  if (!MAPBOX_TOKEN) return null
+  const coords = `${origin[0]},${origin[1]};${destination[0]},${destination[1]}`
+  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}` +
+    `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    const route = data.routes?.[0]
+    if (!route) return null
+    return {
+      coordinates: route.geometry.coordinates,
+      distanceKm: route.distance / 1000,
+      durationMin: route.duration / 60,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Address-search autocomplete via the Mapbox Search Box API.
+ * `sessionToken` should be a stable uuid for the lifetime of one search session (billing grouping).
+ */
+export async function searchSuggest(query, sessionToken) {
+  if (!MAPBOX_TOKEN || !query?.trim()) return []
+  const url = `https://api.mapbox.com/search/searchbox/v1/suggest` +
+    `?q=${encodeURIComponent(query)}&session_token=${sessionToken}&access_token=${MAPBOX_TOKEN}` +
+    `&country=rw&language=en&limit=6`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.suggestions ?? []
+  } catch {
+    return []
+  }
+}
+
+/** Resolve a suggestion's `mapbox_id` (from searchSuggest) into full coordinates. */
+export async function searchRetrieve(mapboxId, sessionToken) {
+  if (!MAPBOX_TOKEN || !mapboxId) return null
+  const url = `https://api.mapbox.com/search/searchbox/v1/retrieve/${mapboxId}` +
+    `?session_token=${sessionToken}&access_token=${MAPBOX_TOKEN}`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    const feature = data.features?.[0]
+    if (!feature) return null
+    const [lng, lat] = feature.geometry.coordinates
+    return { lat, lng, address: feature.properties?.full_address || feature.properties?.name }
+  } catch {
+    return null
+  }
+}

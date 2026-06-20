@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, X, Bell, MapPin } from 'lucide-react'
+import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, X, Bell, MapPin, Package, Truck, Award, ArrowRight, Navigation } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import Modal from '../../components/ui/Modal.jsx'
@@ -40,7 +40,10 @@ const FALLBACK_IMAGES = [
 ]
 
 function getCropImage(crops = [], coopId = 0) {
-  for (const c of crops) {
+  const list = typeof crops === 'string'
+    ? crops.split(',').map(s => s.trim())
+    : crops
+  for (const c of list) {
     const img = CROP_IMAGES[(c || '').toLowerCase()]
     if (img) return img
   }
@@ -113,8 +116,10 @@ export default function OrderManagement() {
   const [loadingCoops, setLoadingCoops] = useState(false)
   const [search, setSearch] = useState('')
   const [coopSearch, setCoopSearch] = useState('')
+  const [nearbyOnly, setNearbyOnly] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
   const [showNew, setShowNew] = useState(false)
+  const [coopStep, setCoopStep] = useState('profile') // 'profile' | 'order'
   const [showNoticeForm, setShowNoticeForm] = useState(false)
   const [selectedCoop, setSelectedCoop] = useState(null)
   const [noticeForm, setNoticeForm] = useState(NOTICE_BLANK)
@@ -168,11 +173,12 @@ export default function OrderManagement() {
     finally { setLoadingNotices(false) }
   }, [])
 
-  const loadCoops = useCallback(async (q = '') => {
+  const loadCoops = useCallback(async (q = '', nearby = false) => {
     setLoadingCoops(true)
     try {
       const params = {}
       if (q) params.search = q
+      if (nearby) params.nearby = 'true'
       const res = await cooperativesApi.searchDirectory(params)
       const list = res.data?.results ?? res.data ?? []
       setAllCoops(list.length ? list : MOCK_ALL_COOPS.filter(c => !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.district.toLowerCase().includes(q.toLowerCase())))
@@ -181,12 +187,28 @@ export default function OrderManagement() {
   }, [])
 
   useEffect(() => { loadOrders(); loadNotices() }, [loadOrders, loadNotices])
-  useEffect(() => { if (tab === 'cooperatives') loadCoops() }, [tab, loadCoops])
+  useEffect(() => { if (tab === 'cooperatives') loadCoops(coopSearch, nearbyOnly) }, [tab, nearbyOnly])
 
   const openRequest = (coop) => {
     setSelectedCoop(coop)
     setForm(f => ({ ...f, cooperative: coop.id }))
+    setCoopStep('profile')
     setShowNew(true)
+    // Fetch the full profile (stock records, storage facilities) in the background
+    // so the modal upgrades from the lightweight directory row to real data.
+    if (!MOCK_COOP_IDS.has(coop.id)) {
+      cooperativesApi.getCooperativeDetail(coop.id).then(res => {
+        const full = res.data
+        const stockTons = (full.stock_records || []).reduce((sum, s) => sum + Number(s.quantity_kg || 0), 0) / 1000
+        setSelectedCoop(prev => (prev && prev.id === coop.id ? { ...prev, ...full, stock_tons: stockTons } : prev))
+      }).catch(() => {})
+    }
+  }
+
+  const closeCoopModal = () => {
+    setShowNew(false)
+    setSelectedCoop(null)
+    setCoopStep('profile')
   }
 
   const submitOrder = async (e) => {
@@ -397,13 +419,19 @@ export default function OrderManagement() {
           {/* Browse All */}
           <section>
             <h2 className="text-base font-semibold text-gray-900 mb-4">Browse All Cooperatives</h2>
-            <form onSubmit={e => { e.preventDefault(); loadCoops(coopSearch) }} className="flex gap-2 mb-5">
+            <form onSubmit={e => { e.preventDefault(); loadCoops(coopSearch, nearbyOnly) }} className="flex gap-2 mb-5">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input value={coopSearch} onChange={e => setCoopSearch(e.target.value)} className="input pl-9" placeholder="Search by name, district, or crop…" />
               </div>
               <button type="submit" className="btn-primary px-5">Search</button>
-              <button type="button" onClick={() => { setCoopSearch(''); loadCoops('') }} className="btn-secondary px-4">
+              <button
+                type="button"
+                onClick={() => setNearbyOnly(v => !v)}
+                className={`px-4 rounded-xl text-sm font-medium border flex items-center gap-1.5 transition-colors ${nearbyOnly ? 'bg-primary-500 text-white border-primary-500' : 'btn-secondary'}`}>
+                <Navigation className="w-3.5 h-3.5" /> Near Me
+              </button>
+              <button type="button" onClick={() => { setCoopSearch(''); loadCoops('', nearbyOnly) }} className="btn-secondary px-4">
                 <RefreshCw className="w-4 h-4" />
               </button>
             </form>
@@ -435,7 +463,14 @@ export default function OrderManagement() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-500 mt-0.5">{coop.district}{coop.sector ? ` · ${coop.sector}` : ''}</p>
+                      <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+                        {coop.district}{coop.sector ? ` · ${coop.sector}` : ''}
+                        {coop.distance_km != null && (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                            {coop.distance_km} km away
+                          </span>
+                        )}
+                      </p>
                       {coop.crops_specialised?.length > 0 && (
                         <div className="flex gap-1 flex-wrap mt-1.5">
                           {coop.crops_specialised.slice(0, 4).map(c => (
@@ -520,61 +555,145 @@ export default function OrderManagement() {
         </div>
       )}
 
-      {/* New produce request modal */}
-      <Modal isOpen={showNew} onClose={() => { setShowNew(false); setSelectedCoop(null) }}
-        title={selectedCoop ? `Request from ${selectedCoop.name}` : 'New Produce Request'}>
-        <form onSubmit={submitOrder} className="space-y-4">
-          {selectedCoop && (
-            <div className="bg-primary-50 rounded-xl p-4">
-              <p className="font-semibold text-primary-800">{selectedCoop.name}</p>
-              <p className="text-sm text-primary-600 mt-0.5">{selectedCoop.district}</p>
+      {/* Cooperative profile → order modal */}
+      <Modal isOpen={showNew} onClose={closeCoopModal}
+        title={coopStep === 'profile' ? 'Cooperative Profile' : `Order from ${selectedCoop?.name}`}>
+
+        {coopStep === 'profile' && selectedCoop && (() => {
+          const imgSrc = selectedCoop.image_url || getCropImage(selectedCoop.crops_specialised, selectedCoop.id)
+          const score = Math.round((selectedCoop.composite_score || 0) * 100)
+          const scoreColor = score >= 75 ? 'text-success-600' : score >= 50 ? 'text-warning-500' : 'text-gray-500'
+          const crops = typeof selectedCoop.crops_specialised === 'string'
+            ? selectedCoop.crops_specialised.split(',').map(s => s.trim())
+            : (selectedCoop.crops_specialised || [])
+          return (
+            <div className="space-y-4">
+              {/* Hero image */}
+              <div className="w-full h-40 rounded-xl overflow-hidden bg-gray-100 -mt-1">
+                <img src={imgSrc} alt={crops[0]} className="w-full h-full object-cover"
+                  onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = FALLBACK_IMAGES[Math.abs(selectedCoop.id || 0) % FALLBACK_IMAGES.length] }} />
+              </div>
+
+              {/* Name & location */}
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{selectedCoop.name}</h3>
+                <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5"><MapPin className="w-3.5 h-3.5" />{selectedCoop.district}</p>
+              </div>
+
+              {/* Crops */}
+              <div className="flex flex-wrap gap-2">
+                {crops.map(c => (
+                  <span key={c} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-primary-50 text-primary-700">
+                    <Package className="w-3 h-3" />{c}
+                  </span>
+                ))}
+              </div>
+
+              {/* Performance stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className={`text-xl font-bold ${scoreColor}`}>{score}%</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Performance</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-gray-900">{selectedCoop.total_batches_dispatched ?? '—'}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Batches sent</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-success-600">
+                    {typeof selectedCoop.stock_tons === 'number' ? `${selectedCoop.stock_tons.toFixed(1)}t` : '—'}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Stock available</p>
+                </div>
+              </div>
+
+              {/* Score breakdown */}
+              {selectedCoop.reliability_score != null && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Score breakdown</p>
+                  {[
+                    { label: 'Reliability', value: selectedCoop.reliability_score },
+                    { label: 'Quality consistency', value: selectedCoop.quality_consistency_rate },
+                    { label: 'Response rate', value: selectedCoop.response_rate },
+                    { label: 'On-time dispatch', value: selectedCoop.on_time_dispatch_rate },
+                  ].map(({ label, value }) => value != null && (
+                    <div key={label} className="flex items-center gap-3">
+                      <p className="text-xs text-gray-500 w-36 flex-shrink-0">{label}</p>
+                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-primary-400 rounded-full" style={{ width: `${Math.round(value * 100)}%` }} />
+                      </div>
+                      <p className="text-xs font-medium text-gray-700 w-8 text-right">{Math.round(value * 100)}%</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={closeCoopModal} className="btn-secondary flex-1">Close</button>
+                <button onClick={() => setCoopStep('order')} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  Place Order <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          )}
-          {!selectedCoop && (
+          )
+        })()}
+
+        {coopStep === 'order' && (
+          <form onSubmit={submitOrder} className="space-y-4">
+            {selectedCoop ? (
+              <div className="bg-primary-50 rounded-xl p-3 flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-primary-800 text-sm">{selectedCoop.name}</p>
+                  <p className="text-xs text-primary-600 mt-0.5">{selectedCoop.district}</p>
+                </div>
+                <button type="button" onClick={() => setCoopStep('profile')} className="text-xs text-primary-600 hover:underline">View profile</button>
+              </div>
+            ) : (
+              <div>
+                <label className="label">Cooperative *</label>
+                <select className="input" value={form.cooperative} onChange={e => setForm(f => ({ ...f, cooperative: e.target.value }))} required>
+                  <option value="">Select cooperative…</option>
+                  {allCoops.map(c => <option key={c.id} value={c.id}>{c.name} — {c.district}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Crop</label>
+                <input className="input" value={form.crop_name} onChange={e => setForm(f => ({ ...f, crop_name: e.target.value }))} placeholder="e.g. Coffee" />
+              </div>
+              <div>
+                <label className="label">Grade required</label>
+                <select className="input" value={form.quality_grade_required} onChange={e => setForm(f => ({ ...f, quality_grade_required: e.target.value }))}>
+                  <option value="A">Grade A</option>
+                  <option value="B">Grade B</option>
+                  <option value="C">Grade C</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Quantity (kg) *</label>
+                <input type="number" className="input" value={form.quantity_kg} onChange={e => setForm(f => ({ ...f, quantity_kg: e.target.value }))} required min="1" />
+              </div>
+              <div>
+                <label className="label">Required by *</label>
+                <input type="date" className="input" value={form.required_delivery_date} onChange={e => setForm(f => ({ ...f, required_delivery_date: e.target.value }))} required />
+              </div>
+            </div>
             <div>
-              <label className="label">Cooperative *</label>
-              <select className="input" value={form.cooperative} onChange={e => setForm(f => ({ ...f, cooperative: e.target.value }))} required>
-                <option value="">Select cooperative…</option>
-                {allCoops.map(c => <option key={c.id} value={c.id}>{c.name} — {c.district}</option>)}
-              </select>
+              <label className="label">Additional notes</label>
+              <textarea className="input" rows={2} value={form.additional_notes} onChange={e => setForm(f => ({ ...f, additional_notes: e.target.value }))} placeholder="Any special requirements…" />
             </div>
-          )}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Crop</label>
-              <input className="input" value={form.crop_name} onChange={e => setForm(f => ({ ...f, crop_name: e.target.value }))} placeholder="e.g. Coffee" />
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={closeCoopModal} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {saving ? 'Sending…' : 'Send Request'}
+              </button>
             </div>
-            <div>
-              <label className="label">Grade required</label>
-              <select className="input" value={form.quality_grade_required} onChange={e => setForm(f => ({ ...f, quality_grade_required: e.target.value }))}>
-                <option value="A">Grade A</option>
-                <option value="B">Grade B</option>
-                <option value="C">Grade C</option>
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Quantity (kg) *</label>
-              <input type="number" className="input" value={form.quantity_kg} onChange={e => setForm(f => ({ ...f, quantity_kg: e.target.value }))} required min="1" />
-            </div>
-            <div>
-              <label className="label">Required by *</label>
-              <input type="date" className="input" value={form.required_delivery_date} onChange={e => setForm(f => ({ ...f, required_delivery_date: e.target.value }))} required />
-            </div>
-          </div>
-          <div>
-            <label className="label">Additional notes</label>
-            <textarea className="input" rows={2} value={form.additional_notes} onChange={e => setForm(f => ({ ...f, additional_notes: e.target.value }))} placeholder="Any special requirements…" />
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => { setShowNew(false); setSelectedCoop(null) }} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
-              {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {saving ? 'Sending…' : 'Send Request'}
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </Modal>
 
       {/* Create notice modal */}

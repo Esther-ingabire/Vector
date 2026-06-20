@@ -12,6 +12,4 @@
  * Example for physical device:
  *   export const API_BASE_URL = 'http://192.168.1.42:8000/api/v1';
  */
-// Wi-Fi / hotspot IP of the dev PC (run `ipconfig` → "Wireless LAN adapter Wi-Fi" → IPv4)
-// Current: PC connected to phone hotspot → 172.20.10.2
-export const API_BASE_URL = 'http://172.20.10.2:8000/api/v1';
+export const API_BASE_URL = 'http://192.168.1.202:8000/api/v1';

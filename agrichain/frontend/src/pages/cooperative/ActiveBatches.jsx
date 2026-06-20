@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { MapPin, Thermometer, Truck, CheckCircle, Package, AlertTriangle } from 'lucide-react'
+import { MapPin, Thermometer, Truck, CheckCircle, Package, AlertTriangle, Navigation } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import { traceabilityApi } from '../../api/traceability.js'
+
+const TRANSIT_STATUSES = ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2']
 
 const MOCK_BATCHES = [
   {
@@ -34,6 +36,7 @@ export default function ActiveBatches() {
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [iotData, setIotData] = useState(null)
 
   useEffect(() => {
     traceabilityApi.getBatches()
@@ -47,6 +50,7 @@ export default function ActiveBatches() {
   const openDetail = async (batch) => {
     setSelected(batch)
     setDetail(null)
+    setIotData(null)
     setLoadingDetail(true)
     try {
       const res = await traceabilityApi.getBatch(batch.id, { _silent: true })
@@ -56,12 +60,23 @@ export default function ActiveBatches() {
     } finally {
       setLoadingDetail(false)
     }
+    if (TRANSIT_STATUSES.includes(batch.current_status)) {
+      traceabilityApi.getBatchIoT(batch.id).then(res => setIotData(res.data)).catch(() => {})
+    }
   }
 
   const inTransit     = batches.filter(b => ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2'].includes(b.current_status))
   const atDistributor = batches.filter(b => b.current_status === 'AT_DISTRIBUTOR')
   const atMarket      = batches.filter(b => ['AT_MARKET', 'COMPLETED'].includes(b.current_status))
   const coldChainActive = inTransit.filter(b => b.requires_refrigeration || b.cold_chain).length
+
+  // Batches sharing the same transport request travel on one vehicle — group them
+  // so each batch's own audit trail stays visible while showing they're on the same trip.
+  const tripMateCount = (batch) => {
+    const tripId = batch.transport_request_leg1 || batch.transport_request_leg2
+    if (!tripId) return 0
+    return batches.filter(b => (b.transport_request_leg1 || b.transport_request_leg2) === tripId).length - 1
+  }
 
   return (
     <div className="space-y-6">
@@ -93,7 +108,9 @@ export default function ActiveBatches() {
           {inTransit.length > 0 && (
             <div className="space-y-3">
               <h2 className="text-base font-semibold text-gray-700">In Transit</h2>
-              {inTransit.map(batch => (
+              {inTransit.map(batch => {
+                const mates = tripMateCount(batch)
+                return (
                 <div key={batch.id} onClick={() => openDetail(batch)}
                   className="card cursor-pointer hover:shadow-md transition-shadow flex items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
@@ -105,6 +122,9 @@ export default function ActiveBatches() {
                         {batch.crop_name} <span className="text-gray-400 font-normal">· {Number(batch.dispatch_weight_kg).toLocaleString()} kg</span>
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5 font-mono">{batch.batch_id_short}</p>
+                      {mates > 0 && (
+                        <p className="text-xs text-blue-600 mt-0.5">Sharing this trip with {mates} other batch{mates > 1 ? 'es' : ''}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-sm">
@@ -119,7 +139,8 @@ export default function ActiveBatches() {
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
@@ -253,6 +274,27 @@ export default function ActiveBatches() {
                   </div>
                 ))}
               </div>
+
+              {iotData && (iotData.temperature_readings?.length > 0 || iotData.gps_tracks?.length > 0) && (
+                <div className="grid grid-cols-2 gap-3">
+                  {iotData.temperature_readings?.length > 0 && (
+                    <div className={`rounded-lg p-3 ${iotData.temperature_readings[0].is_breach ? 'bg-danger-50' : 'bg-gray-50'}`}>
+                      <p className="text-xs text-gray-500 flex items-center gap-1"><Thermometer className="w-3 h-3" /> Latest temp</p>
+                      <p className={`font-medium mt-0.5 ${iotData.temperature_readings[0].is_breach ? 'text-danger-600' : 'text-gray-900'}`}>
+                        {iotData.temperature_readings[0].temperature_celsius}°C
+                      </p>
+                    </div>
+                  )}
+                  {iotData.gps_tracks?.length > 0 && (
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-xs text-gray-500 flex items-center gap-1"><Navigation className="w-3 h-3" /> Last known location</p>
+                      <p className="font-medium text-gray-900 mt-0.5 text-xs">
+                        {iotData.gps_tracks[0].latitude}, {iotData.gps_tracks[0].longitude}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {detail?.qr_scans?.length > 0 && (
                 <div>

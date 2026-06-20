@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack
+from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -23,6 +23,16 @@ class TransporterSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj):
         return str(obj)
+
+
+class IncidentReportSerializer(serializers.ModelSerializer):
+    incident_type_display = serializers.CharField(source='get_incident_type_display', read_only=True)
+
+    class Meta:
+        model = IncidentReport
+        fields = ['id', 'trip', 'incident_type', 'incident_type_display', 'description',
+                  'gps_lat', 'gps_lng', 'resolved', 'reported_at']
+        read_only_fields = ['id', 'reported_at']
 
 
 class GPSTrackSerializer(serializers.ModelSerializer):

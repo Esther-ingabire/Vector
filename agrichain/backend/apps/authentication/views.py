@@ -80,6 +80,17 @@ def create_role_profile(user, access_request):
                 is_active=True,
             )
 
+    elif role == 'WAREHOUSE_MANAGER':
+        from apps.cooperatives.models import WarehouseManager
+        if not hasattr(user, 'warehouse_manager_profile'):
+            WarehouseManager.objects.create(
+                user=user,
+                company_name=org,
+                district=district,
+                contact_phone=phone,
+                is_active=True,
+            )
+
 
 def get_client_ip(request):
     x_forwarded = request.META.get("HTTP_X_FORWARDED_FOR")

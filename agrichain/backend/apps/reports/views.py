@@ -1,6 +1,7 @@
 import csv
 import io
 from django.http import FileResponse, HttpResponse
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -41,12 +42,13 @@ class ReportViewSet(viewsets.ModelViewSet):
                             filename=f"{report.title}.{report.format.lower()}")
 
 
-# ─── Live CSV Export (role-aware, multi-type) ──────────────────────────────
+# ─── Live CSV/PDF Export (role-aware, multi-type) ──────────────────────────
 
 class ExportReportView(APIView):
     """
-    GET /api/v1/reports/export/?report_type=<type>
-    Streams a CSV report for the authenticated user.
+    GET /api/v1/reports/export/?report_type=<type>&file_format=csv|pdf
+    (NOT "format" — DRF reserves that query param for its own content negotiation.)
+    Streams a report for the authenticated user, as CSV (default) or PDF.
     report_type defaults to the primary report for each role.
     Available types per role:
       COOPERATIVE_MANAGER : batches | stock | transport
@@ -55,6 +57,9 @@ class ExportReportView(APIView):
       MARKET_AGENT        : collections | waste
       MINAGRI_OFFICER     : national | districts | crops | transport
       ADMIN               : national | districts | crops | transport
+
+    Each `_xxx` handler below returns (title, headers, rows, base_filename) — the
+    CSV/PDF renderers are shared so both formats always stay in sync.
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -100,15 +105,67 @@ class ExportReportView(APIView):
         'ADMIN':               'national',
     }
 
+    # ── shared renderers ────────────────────────────────────────────────────
+
     @staticmethod
-    def _csv_response(headers, rows, filename):
+    def _csv_response(headers, rows, base_filename):
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(headers)
         writer.writerows(rows)
         buf.seek(0)
         resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
-        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+        resp['Content-Disposition'] = f'attachment; filename="{base_filename}.csv"'
+        return resp
+
+    @staticmethod
+    def _pdf_response(title, headers, rows, base_filename, request):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.units import cm
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf, pagesize=landscape(A4),
+            topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+        )
+        styles = getSampleStyleSheet()
+        elements = [
+            Paragraph(title, styles['Title']),
+            Paragraph(
+                f"Generated {timezone.now().strftime('%Y-%m-%d %H:%M')} by "
+                f"{request.user.get_full_name() or request.user.phone_number} — ChainSight Supply Chain Analytics",
+                styles['Normal'],
+            ),
+            Spacer(1, 0.5 * cm),
+        ]
+
+        if not rows:
+            elements.append(Paragraph('No data available for this report.', styles['Normal']))
+        else:
+            table_data = [headers] + [[str(c) for c in row] for row in rows]
+            table = Table(table_data, repeatRows=1)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#15803d')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 0.3 * cm))
+            elements.append(Paragraph(f'{len(rows)} record(s).', styles['Normal']))
+
+        doc.build(elements)
+        buf.seek(0)
+        resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{base_filename}.pdf"'
         return resp
 
     def get(self, request):
@@ -125,7 +182,14 @@ class ExportReportView(APIView):
         if not method_name:
             return Response({'detail': f'Unknown report_type "{report_type}" for role {role}.'}, status=400)
 
-        return getattr(self, method_name)(request)
+        result = getattr(self, method_name)(request)
+        if isinstance(result, Response):
+            return result  # error path (e.g. missing profile)
+
+        title, headers, rows, base_filename = result
+        if request.query_params.get('file_format', 'csv').lower() == 'pdf':
+            return self._pdf_response(title, headers, rows, base_filename, request)
+        return self._csv_response(headers, rows, base_filename)
 
     # ── Cooperative Manager ─────────────────────────────────────────────────
 
@@ -151,7 +215,7 @@ class ExportReportView(APIView):
             ]
             for b in Batch.objects.filter(cooperative=coop).select_related('crop')
         ]
-        return self._csv_response(headers, rows, 'cooperative_batch_report.csv')
+        return f'Cooperative Batch Report — {coop.name}', headers, rows, 'cooperative_batch_report'
 
     def _coop_stock(self, request):
         from apps.cooperatives.models import CooperativeStock
@@ -170,7 +234,7 @@ class ExportReportView(APIView):
             ]
             for s in CooperativeStock.objects.filter(cooperative=coop).select_related('crop')
         ]
-        return self._csv_response(headers, rows, 'cooperative_stock_report.csv')
+        return f'Cooperative Stock Report — {coop.name}', headers, rows, 'cooperative_stock_report'
 
     def _coop_transport(self, request):
         from apps.transport.models import TransportRequest
@@ -195,7 +259,7 @@ class ExportReportView(APIView):
                 requested_by_cooperative=coop
             ).select_related('transporter')
         ]
-        return self._csv_response(headers, rows, 'cooperative_transport_report.csv')
+        return f'Cooperative Transport Report — {coop.name}', headers, rows, 'cooperative_transport_report'
 
     # ── Transporter ─────────────────────────────────────────────────────────
 
@@ -232,7 +296,7 @@ class ExportReportView(APIView):
                 j.required_pickup_datetime.strftime('%Y-%m-%d %H:%M') if j.required_pickup_datetime else '',
                 pickup, delivery, hrs,
             ])
-        return self._csv_response(headers, rows, 'transporter_jobs_report.csv')
+        return f'Transporter Jobs Report — {transporter}', headers, rows, 'transporter_jobs_report'
 
     def _trans_performance(self, request):
         from apps.transport.models import TransportRequest, Trip
@@ -267,7 +331,7 @@ class ExportReportView(APIView):
             ]
             for route, d in sorted(routes.items())
         ]
-        return self._csv_response(headers, rows, 'transporter_performance_report.csv')
+        return f'Transporter Performance Report — {transporter}', headers, rows, 'transporter_performance_report'
 
     # ── Distributor ─────────────────────────────────────────────────────────
 
@@ -294,7 +358,7 @@ class ExportReportView(APIView):
                 o.delivery_method, o.status,
                 o.created_at.strftime('%Y-%m-%d') if o.created_at else '',
             ])
-        return self._csv_response(headers, rows, 'distributor_orders_report.csv')
+        return f'Distributor Orders Report — {dist}', headers, rows, 'distributor_orders_report'
 
     def _dist_delivery_comparison(self, request):
         from apps.distribution.models import Order
@@ -321,7 +385,10 @@ class ExportReportView(APIView):
                 agg['cancelled'],
                 round(float(agg['volume'] or 0), 2),
             ])
-        return self._csv_response(headers, rows, 'distributor_delivery_comparison_report.csv')
+        return (
+            f'Distributor Delivery Method Comparison — {dist}', headers, rows,
+            'distributor_delivery_comparison_report',
+        )
 
     # ── Market Agent ────────────────────────────────────────────────────────
 
@@ -350,7 +417,7 @@ class ExportReportView(APIView):
                 float(c.self_transport_loss_kg or 0),
                 float(c.self_transport_loss_pct or 0),
             ])
-        return self._csv_response(headers, rows, 'market_agent_collections_report.csv')
+        return f'Market Agent Collections Report — {agent}', headers, rows, 'market_agent_collections_report'
 
     def _agent_waste(self, request):
         from apps.market_agents.models import WasteReport
@@ -374,7 +441,7 @@ class ExportReportView(APIView):
             ]
             for w in WasteReport.objects.filter(market_agent=agent).order_by('-reporting_period_end')
         ]
-        return self._csv_response(headers, rows, 'market_agent_waste_report.csv')
+        return f'Market Agent Waste Report — {agent}', headers, rows, 'market_agent_waste_report'
 
     # ── MINAGRI / Admin ─────────────────────────────────────────────────────
 
@@ -404,7 +471,7 @@ class ExportReportView(APIView):
             )
         ]
         headers = ['District', 'Crop', 'Batch Count', 'Volume (kg)', 'Avg Loss (%)', 'Total Loss (kg)']
-        return self._csv_response(headers, rows, 'national_supply_chain_report.csv')
+        return 'National Supply Chain Report', headers, rows, 'national_supply_chain_report'
 
     def _national_districts(self, request):
         from apps.traceability.models import Batch
@@ -433,7 +500,7 @@ class ExportReportView(APIView):
             if r['cooperative__district']
         ]
         headers = ['District', 'Batch Count', 'Volume (kg)', 'Avg Loss (%)', 'Total Loss (kg)', 'Risk Level']
-        return self._csv_response(headers, rows, 'national_districts_report.csv')
+        return 'National District Loss Report', headers, rows, 'national_districts_report'
 
     def _national_crops(self, request):
         from apps.traceability.models import Batch
@@ -460,7 +527,7 @@ class ExportReportView(APIView):
             )
         ]
         headers = ['Crop', 'Batch Count', 'Volume (kg)', 'Avg Loss (%)', 'Total Loss (kg)']
-        return self._csv_response(headers, rows, 'national_crops_report.csv')
+        return 'National Crop Loss Report', headers, rows, 'national_crops_report'
 
     def _national_transport(self, request):
         from apps.transport.models import TransportRequest, Trip
@@ -498,4 +565,4 @@ class ExportReportView(APIView):
                 avg_hrs,
                 round(max(0, avg_hrs - 4.0), 1),
             ])
-        return self._csv_response(headers, rows, 'national_transport_report.csv')
+        return 'National Transport Performance Report', headers, rows, 'national_transport_report'

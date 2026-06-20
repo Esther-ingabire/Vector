@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, XCircle, Clock, Eye } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Eye, Truck, Package, QrCode, Download } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
+import { useAuth } from '../../context/AuthContext.jsx'
 import { distributionApi } from '../../api/distribution.js'
+import { transportApi } from '../../api/transport.js'
+import { traceabilityApi } from '../../api/traceability.js'
 import toast from 'react-hot-toast'
 
 const statusStyles = {
@@ -22,12 +25,36 @@ const MOCK_REQUESTS = [
 ]
 
 export default function ProduceRequests() {
+  const { user } = useAuth()
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('all')
   const [actionNotes, setActionNotes] = useState('')
   const [acting, setActing] = useState(false)
+
+  // Dispatch (creates the traceability Batch — optionally sharing a trip with other batches)
+  const [dispatching, setDispatching] = useState(null)   // the request being dispatched
+  const [openTrips, setOpenTrips] = useState([])         // this cooperative's PENDING/ACCEPTED leg-1 transport requests
+  const [batchCounts, setBatchCounts] = useState({})     // { transportRequestId: numberOfBatchesAlready on it }
+  const [dispatchForm, setDispatchForm] = useState({ dispatch_weight_kg: '', quality_grade_at_dispatch: 'A', transport_request_leg1: '' })
+  const [savingDispatch, setSavingDispatch] = useState(false)
+
+  // Batch label/QR shown right after a successful dispatch
+  const [dispatchedBatch, setDispatchedBatch] = useState(null)
+  const [qrUrl, setQrUrl] = useState(null)
+  const [loadingQr, setLoadingQr] = useState(false)
+
+  useEffect(() => {
+    setQrUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+    if (!dispatchedBatch) return
+    setLoadingQr(true)
+    traceabilityApi.getQR(dispatchedBatch.id)
+      .then(res => setQrUrl(URL.createObjectURL(res.data)))
+      .catch(() => setQrUrl(null))
+      .finally(() => setLoadingQr(false))
+    return () => setQrUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+  }, [dispatchedBatch?.id])
 
   useEffect(() => {
     distributionApi.getMyProduceRequests()
@@ -38,6 +65,58 @@ export default function ProduceRequests() {
       .catch(() => setRequests(MOCK_REQUESTS))
       .finally(() => setLoading(false))
   }, [])
+
+  const openDispatch = async (req) => {
+    setDispatching(req)
+    setDispatchForm({
+      dispatch_weight_kg: req.quantity_kg,
+      quality_grade_at_dispatch: req.quality_grade_required || 'A',
+      transport_request_leg1: '',
+    })
+    try {
+      const [pendingRes, acceptedRes, batchesRes] = await Promise.all([
+        transportApi.getMyRequests({ status: 'PENDING' }, { _silent: true }),
+        transportApi.getMyRequests({ status: 'ACCEPTED' }, { _silent: true }),
+        traceabilityApi.getBatches({}).catch(() => ({ data: [] })),
+      ])
+      const trips = [...(pendingRes.data?.results ?? pendingRes.data ?? []), ...(acceptedRes.data?.results ?? acceptedRes.data ?? [])]
+        .filter(t => Number(t.leg_number) === 1)
+      setOpenTrips(trips)
+
+      const batches = batchesRes.data?.results ?? batchesRes.data ?? []
+      const counts = {}
+      batches.forEach(b => {
+        if (b.transport_request_leg1) counts[b.transport_request_leg1] = (counts[b.transport_request_leg1] || 0) + 1
+      })
+      setBatchCounts(counts)
+    } catch {
+      setOpenTrips([])
+    }
+  }
+
+  const submitDispatch = async (e) => {
+    e.preventDefault()
+    setSavingDispatch(true)
+    try {
+      const res = await traceabilityApi.createBatch({
+        supply_agreement: dispatching.supply_agreement_id,
+        crop: dispatching.crop,
+        dispatch_weight_kg: Number(dispatchForm.dispatch_weight_kg),
+        quality_grade_at_dispatch: dispatchForm.quality_grade_at_dispatch,
+        dispatch_timestamp: new Date().toISOString(),
+        transport_request_leg1: dispatchForm.transport_request_leg1 || null,
+      })
+      toast.success('Batch dispatched — traceability record created.')
+      setDispatching(null)
+      setDispatchedBatch(res.data)
+    } catch (err) {
+      const data = err.response?.data
+      const msg = data ? Object.values(data).flat().join(' ') : 'Could not dispatch batch'
+      toast.error(msg)
+    } finally {
+      setSavingDispatch(false)
+    }
+  }
 
   const filtered = filter === 'all' ? requests : requests.filter(r => r.status === filter)
 
@@ -79,9 +158,16 @@ export default function ProduceRequests() {
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyles[v] || 'bg-gray-100 text-gray-500'}`}>{statusLabel[v] || v}</span>
     )},
     { key: '_actions', label: '', render: (_, row) => (
-      <button onClick={() => { setSelected(row); setActionNotes('') }} className="text-primary-600 hover:underline text-sm flex items-center gap-1">
-        <Eye className="w-4 h-4" /> View
-      </button>
+      <div className="flex items-center gap-3">
+        <button onClick={() => { setSelected(row); setActionNotes('') }} className="text-primary-600 hover:underline text-sm flex items-center gap-1">
+          <Eye className="w-4 h-4" /> View
+        </button>
+        {row.status === 'ACCEPTED' && (
+          <button onClick={() => openDispatch(row)} className="text-success-600 hover:underline text-sm flex items-center gap-1">
+            <Truck className="w-4 h-4" /> Dispatch
+          </button>
+        )}
+      </div>
     )},
   ]
 
@@ -134,12 +220,7 @@ export default function ProduceRequests() {
                 </div>
               ))}
             </div>
-            {selected.additional_notes && (
-              <div className="bg-gray-50 rounded-lg p-3 text-sm">
-                <p className="text-xs text-gray-500 mb-1">Distributor notes</p>
-                <p className="text-gray-700">{selected.additional_notes}</p>
-              </div>
-            )}
+
             {selected.status === 'PENDING' ? (
               <>
                 <div>
@@ -156,11 +237,119 @@ export default function ProduceRequests() {
                 </div>
               </>
             ) : (
-              <div className="text-center text-sm text-gray-500 pt-2 space-y-1">
+              <div className="text-center text-sm text-gray-500 pt-2 space-y-2">
                 <p>This request was <strong>{statusLabel[selected.status]?.toLowerCase()}</strong>.</p>
                 {selected.cooperative_response_notes && <p className="text-gray-400">{selected.cooperative_response_notes}</p>}
+                {selected.status === 'ACCEPTED' && (
+                  <button onClick={() => { openDispatch(selected); setSelected(null) }} className="btn-primary inline-flex items-center gap-2 mt-2">
+                    <Truck className="w-4 h-4" /> Dispatch Batch
+                  </button>
+                )}
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Dispatch Batch modal */}
+      {dispatching && (
+        <Modal isOpen={!!dispatching} onClose={() => setDispatching(null)} title={`Dispatch — ${dispatching.crop_name}`}>
+          <form onSubmit={submitDispatch} className="space-y-4">
+            <div className="bg-gray-50 rounded-xl p-3 text-sm">
+              <p className="font-semibold text-gray-900">{dispatching.distributor_name}</p>
+              <p className="text-gray-500">{dispatching.crop_name} · requested {Number(dispatching.quantity_kg).toLocaleString()} kg</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Dispatch weight (kg) *</label>
+                <input type="number" className="input" required min="1"
+                  value={dispatchForm.dispatch_weight_kg}
+                  onChange={e => setDispatchForm(f => ({ ...f, dispatch_weight_kg: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Quality grade at dispatch</label>
+                <select className="input" value={dispatchForm.quality_grade_at_dispatch}
+                  onChange={e => setDispatchForm(f => ({ ...f, quality_grade_at_dispatch: e.target.value }))}>
+                  <option value="A">Grade A</option>
+                  <option value="B">Grade B</option>
+                  <option value="C">Grade C</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-1.5"><Package className="w-3.5 h-3.5" /> Share a trip with other batches (optional)</label>
+              <select className="input" value={dispatchForm.transport_request_leg1}
+                onChange={e => setDispatchForm(f => ({ ...f, transport_request_leg1: e.target.value }))}>
+                <option value="">No transport request yet — attach later</option>
+                {openTrips.map(t => (
+                  <option key={t.id} value={t.id}>
+                    #{t.id} — {t.pickup_location} → {t.destination} ({t.transporter_name || 'transporter'})
+                    {batchCounts[t.id] ? ` · ${batchCounts[t.id]} batch${batchCounts[t.id] > 1 ? 'es' : ''} already on this trip` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Pick an existing pending/accepted transport request if this batch is going out on the same vehicle as others — each batch keeps its own audit trail, but they'll be tracked together.
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setDispatching(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={savingDispatch} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {savingDispatch && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {savingDispatch ? 'Dispatching…' : 'Dispatch Batch'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Batch label / QR code — shown immediately after a successful dispatch */}
+      {dispatchedBatch && (
+        <Modal isOpen={!!dispatchedBatch} onClose={() => setDispatchedBatch(null)} title="Batch Dispatched">
+          <div className="space-y-4">
+            <div className="w-40 h-40 mx-auto rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center overflow-hidden">
+              {loadingQr ? (
+                <span className="text-xs text-gray-400">Loading…</span>
+              ) : qrUrl ? (
+                <img src={qrUrl} alt={`QR code for batch ${dispatchedBatch.batch_id_short}`} className="w-full h-full object-contain" />
+              ) : (
+                <QrCode className="w-10 h-10 text-gray-300" />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {[
+                ['Batch Code', dispatchedBatch.batch_id_short],
+                ['Crop Type', dispatchedBatch.crop_name],
+                ['Grade', `Grade ${dispatchedBatch.quality_grade_at_dispatch}`],
+                ['Origin District', user?.district || dispatchedBatch.cooperative_name || '—'],
+              ].map(([k, v]) => (
+                <div key={k} className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">{k}</p>
+                  <p className="font-medium text-gray-900 mt-0.5 font-mono">{v || '—'}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs text-gray-400 text-center">
+              Print and attach this label to the physical batch — scanning it at each handover point records a tamper-evident traceability event.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setDispatchedBatch(null)} className="btn-secondary flex-1">Close</button>
+              {qrUrl && (
+                <a
+                  href={qrUrl}
+                  download={`batch-${dispatchedBatch.batch_id_short}-qr.png`}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" /> Download Label
+                </a>
+              )}
+            </div>
           </div>
         </Modal>
       )}

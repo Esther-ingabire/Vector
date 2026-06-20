@@ -32,4 +32,10 @@ export const cooperativesApi = {
 
   // QR code generation
   generateBatchQR: (batchId) => apiClient.get(`/traceability/batches/${batchId}/qr/`),
+
+  // Warehouse rental (renting space from an independent Warehouse Manager)
+  searchWarehouses: (params) => apiClient.get('/cooperatives/warehouses/', { params }),
+  getMyRentalRequests: () => apiClient.get('/cooperatives/warehouse-rentals/'),
+  requestWarehouseRental: (data) => apiClient.post('/cooperatives/warehouse-rentals/', data),
+  endWarehouseRental: (id) => apiClient.post(`/cooperatives/warehouse-rentals/${id}/end/`),
 }
