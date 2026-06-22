@@ -66,7 +66,7 @@ class VehicleIoTReadingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 qs = VehicleIoTReading.objects.filter(
                     trip__transport_request__transporter=user.transporter_profile

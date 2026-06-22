@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Search, QrCode, MapPin, CheckCircle, Truck, Package, ShoppingCart, AlertTriangle, ChevronRight, Download } from 'lucide-react'
 import TripTrackingMap from '../map/TripTrackingMap.jsx'
 import RiskBadge from '../ui/RiskBadge.jsx'
@@ -12,8 +13,6 @@ function riskFromLossPct(pct) {
   if (pct >= 5) return 'AMBER'
   return 'GREEN'
 }
-
-const TRANSIT_STATUSES = ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2']
 
 const MOCK_BATCHES = [
   { id: 1, batch_id: 'a4f2c1d0-0000-0000-0000-000000000001', batch_id_short: 'A4F2C1D0', crop_name: 'Tomatoes', dispatch_weight_kg: 450, current_status: 'IN_TRANSIT_LEG1', dispatch_timestamp: '2026-06-09T08:00:00Z', cooperative_name: 'My Cooperative', total_loss_pct: null },
@@ -136,9 +135,9 @@ export default function TraceabilityExplorer({
 
   useEffect(() => {
     setIotData(null)
-    if (!batch || !TRANSIT_STATUSES.includes(batch.current_status)) return
+    if (!batch) return
     traceabilityApi.getBatchIoT(batch.id).then(res => setIotData(res.data)).catch(() => {})
-  }, [batch?.id, batch?.current_status])
+  }, [batch?.id])
 
   const openBatch = async (item) => {
     setBatch(null)
@@ -152,6 +151,17 @@ export default function TraceabilityExplorer({
       setBatch(item)
     }
   }
+
+  // Deep link from a notification (e.g. a transporter's incident report) — ?batch=<id>
+  // opens that batch directly instead of landing on the plain list.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const batchId = searchParams.get('batch')
+    if (!batchId) return
+    openBatch({ id: batchId })
+    setSearchParams({}, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSearch = async (e) => {
     e.preventDefault()
@@ -273,12 +283,12 @@ export default function TraceabilityExplorer({
             </div>
           </div>
 
-          {TRANSIT_STATUSES.includes(batch.current_status) && (
+          {iotData?.route && (
             <div className="card">
               <h2 className="text-base font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4" /> Live Location
+                <MapPin className="w-4 h-4" /> {iotData.is_live ? 'Live Location' : 'Delivery Route'}
               </h2>
-              <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} />
+              <TripTrackingMap route={iotData.route} gpsTracks={iotData.is_live ? iotData.gps_tracks : []} />
             </div>
           )}
 

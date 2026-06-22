@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search } from 'lucide-react'
+import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search, Route } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
@@ -52,6 +52,13 @@ export default function TransportRequests() {
   const [form, setForm] = useState(BLANK_REQUEST)
   const [tForm, setTForm] = useState(BLANK_TRANSPORTER)
   const [saving, setSaving] = useState(false)
+  // Extra drop-offs beyond `form.destination` — a multi-stop run, one pickup → several
+  // destinations for the same transporter (e.g. different crops to different distributors).
+  const [extraStops, setExtraStops] = useState([])
+
+  const addStop = () => setExtraStops(prev => [...prev, { destination: '', cargo_description: '', estimated_cargo_weight_kg: '', notes: '' }])
+  const updateStop = (i, field, value) => setExtraStops(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s))
+  const removeStop = (i) => setExtraStops(prev => prev.filter((_, idx) => idx !== i))
 
   useEffect(() => {
     transportApi.getMyRequests(undefined, { _silent: true })
@@ -76,16 +83,33 @@ export default function TransportRequests() {
     if (!form.transporter) { toast.error('Select a transporter'); return }
     setSaving(true)
     try {
-      const res = await transportApi.createRequest({
-        ...form,
-        estimated_cargo_weight_kg: Number(form.estimated_cargo_weight_kg),
-        transporter: Number(form.transporter),
-        leg_number: 1,
-      })
-      setRequests(prev => [res.data, ...prev])
-      toast.success('Transport request submitted')
+      if (extraStops.length > 0) {
+        const res = await transportApi.createMultiStopRequest({
+          transporter: Number(form.transporter),
+          leg_number: 1,
+          pickup_location: form.pickup_location,
+          requires_refrigeration: form.requires_refrigeration,
+          required_pickup_datetime: form.required_pickup_datetime,
+          stops: [
+            { destination: form.destination, cargo_description: form.cargo_description, estimated_cargo_weight_kg: Number(form.estimated_cargo_weight_kg), notes: form.notes },
+            ...extraStops.map(s => ({ ...s, estimated_cargo_weight_kg: Number(s.estimated_cargo_weight_kg) })),
+          ],
+        })
+        setRequests(prev => [...res.data, ...prev])
+        toast.success(`Multi-stop request submitted — ${res.data.length} stops`)
+      } else {
+        const res = await transportApi.createRequest({
+          ...form,
+          estimated_cargo_weight_kg: Number(form.estimated_cargo_weight_kg),
+          transporter: Number(form.transporter),
+          leg_number: 1,
+        })
+        setRequests(prev => [res.data, ...prev])
+        toast.success('Transport request submitted')
+      }
       setShowNewRequest(false)
       setForm(BLANK_REQUEST)
+      setExtraStops([])
       setTransporterSearch('')
     } catch {
       // interceptor handles toast
@@ -303,7 +327,7 @@ export default function TransportRequests() {
       )}
 
       {/* New Transport Request modal */}
-      <Modal isOpen={showNewRequest} onClose={() => { setShowNewRequest(false); setTransporterSearch('') }} title="New Transport Request">
+      <Modal isOpen={showNewRequest} onClose={() => { setShowNewRequest(false); setTransporterSearch(''); setExtraStops([]) }} title="New Transport Request">
         <form onSubmit={submitRequest} className="space-y-4">
           <div>
             <label className="label">Select transporter *</label>
@@ -390,10 +414,34 @@ export default function TransportRequests() {
               <input className="input" value={form.pickup_location} onChange={e => setForm(f => ({ ...f, pickup_location: e.target.value }))} required placeholder="e.g. Musanze" />
             </div>
             <div>
-              <label className="label">Destination</label>
+              <label className="label">Destination{extraStops.length > 0 ? ' — Stop 1' : ''}</label>
               <input className="input" value={form.destination} onChange={e => setForm(f => ({ ...f, destination: e.target.value }))} required placeholder="e.g. Kigali" />
             </div>
           </div>
+
+          {/* Additional stops — multi-stop run, same pickup & transporter */}
+          {extraStops.map((stop, i) => (
+            <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-3 relative">
+              <button type="button" onClick={() => removeStop(i)}
+                className="absolute top-2 right-2 text-gray-300 hover:text-danger-500">
+                <X className="w-4 h-4" />
+              </button>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stop {i + 2}</p>
+              <input className="input" required placeholder="Destination, e.g. Huye Market"
+                value={stop.destination} onChange={e => updateStop(i, 'destination', e.target.value)} />
+              <div className="grid grid-cols-2 gap-3">
+                <input className="input" required placeholder="Cargo description"
+                  value={stop.cargo_description} onChange={e => updateStop(i, 'cargo_description', e.target.value)} />
+                <input type="number" className="input" required min="1" placeholder="Weight (kg)"
+                  value={stop.estimated_cargo_weight_kg} onChange={e => updateStop(i, 'estimated_cargo_weight_kg', e.target.value)} />
+              </div>
+            </div>
+          ))}
+          <button type="button" onClick={addStop}
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium text-primary-600 border border-dashed border-primary-300 rounded-xl py-2.5 hover:bg-primary-50 transition-colors">
+            <Route className="w-4 h-4" /> Add another stop
+          </button>
+
           <div className="flex items-center gap-3">
             <input type="checkbox" id="refrig" checked={form.requires_refrigeration} onChange={e => setForm(f => ({ ...f, requires_refrigeration: e.target.checked }))} className="w-4 h-4 rounded border-gray-300" />
             <label htmlFor="refrig" className="text-sm font-medium text-gray-700">Requires refrigeration (cold chain)</label>
@@ -403,8 +451,10 @@ export default function TransportRequests() {
             <textarea className="input" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setShowNewRequest(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60">{saving ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="button" onClick={() => { setShowNewRequest(false); setExtraStops([]) }} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60">
+              {saving ? 'Submitting…' : 'Submit'}
+            </button>
           </div>
         </form>
       </Modal>

@@ -279,7 +279,7 @@ export default function ProduceRequests() {
             </div>
 
             <div>
-              <label className="label flex items-center gap-1.5"><Package className="w-3.5 h-3.5" /> Share a trip with other batches (optional)</label>
+              <label className="label flex items-center gap-1.5"><Package className="w-3.5 h-3.5" /> Transport request (optional)</label>
               <select className="input" value={dispatchForm.transport_request_leg1}
                 onChange={e => setDispatchForm(f => ({ ...f, transport_request_leg1: e.target.value }))}>
                 <option value="">No transport request yet — attach later</option>
@@ -290,9 +290,6 @@ export default function ProduceRequests() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400 mt-1">
-                Pick an existing pending/accepted transport request if this batch is going out on the same vehicle as others — each batch keeps its own audit trail, but they'll be tracked together.
-              </p>
             </div>
 
             <div className="flex gap-3 pt-2">

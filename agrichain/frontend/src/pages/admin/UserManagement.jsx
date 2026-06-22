@@ -7,10 +7,10 @@ import { format, formatDistanceToNow } from 'date-fns'
 import { authApi } from '../../api/auth.js'
 import toast from 'react-hot-toast'
 
-const ROLES = ['ALL', 'COOPERATIVE_MANAGER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER']
-const CREATABLE_ROLES = ['COOPERATIVE_MANAGER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER']
-const ROLE_LABELS = { ADMIN: 'Admin', COOPERATIVE_MANAGER: 'Coop Manager', TRANSPORTER: 'Transporter', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer' }
-const ROLE_BADGE = { ADMIN: 'badge-red', COOPERATIVE_MANAGER: 'badge-green', TRANSPORTER: 'badge-amber', DISTRIBUTOR: 'badge-primary', MARKET_AGENT: 'badge-blue', MINAGRI_OFFICER: 'badge-gray' }
+const ROLES = ['ALL', 'COOPERATIVE_MANAGER', 'TRANSPORT_COMPANY', 'TRANSPORTER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER', 'WAREHOUSE_MANAGER']
+const CREATABLE_ROLES = ['COOPERATIVE_MANAGER', 'TRANSPORT_COMPANY', 'TRANSPORTER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER', 'WAREHOUSE_MANAGER']
+const ROLE_LABELS = { ADMIN: 'Admin', COOPERATIVE_MANAGER: 'Coop Manager', TRANSPORT_COMPANY: 'Transport Company', TRANSPORTER: 'Transporter (Driver)', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer', WAREHOUSE_MANAGER: 'Warehouse Manager' }
+const ROLE_BADGE = { ADMIN: 'badge-red', COOPERATIVE_MANAGER: 'badge-green', TRANSPORT_COMPANY: 'badge-amber', TRANSPORTER: 'badge-gray', DISTRIBUTOR: 'badge-primary', MARKET_AGENT: 'badge-blue', MINAGRI_OFFICER: 'badge-gray', WAREHOUSE_MANAGER: 'badge-blue' }
 
 const createSchema = z.object({
   first_name: z.string().min(1, 'Required'),

@@ -30,7 +30,7 @@ class CooperativeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role in ('ADMIN', 'MINAGRI_OFFICER', 'DISTRIBUTOR', 'TRANSPORTER'):
+        if user.role in ('ADMIN', 'MINAGRI_OFFICER', 'DISTRIBUTOR', 'TRANSPORTER', 'TRANSPORT_COMPANY'):
             return Cooperative.objects.filter(is_active=True)
         if user.role == 'COOPERATIVE_MANAGER':
             return Cooperative.objects.filter(manager=user)
@@ -143,7 +143,9 @@ def register_transporter(request):
         username = f'{base_username}.{suffix}'
         suffix += 1
 
-    data = {**request.data, 'role': 'TRANSPORTER', 'username': username}
+    # A cooperative registers an independent transport business it works with — that's a
+    # Transport Company account, not a driver (drivers are only created by a company itself).
+    data = {**request.data, 'role': 'TRANSPORT_COMPANY', 'username': username}
     serializer = UserCreateSerializer(data=data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -181,12 +183,12 @@ def register_transporter(request):
     if user.email:
         send_mail(
             'ChainSight — Activate Your Account',
-            f"Hello {user.get_full_name()},\n\nYou have been registered as a transporter on ChainSight by {coop.name}.\n\nYour verification code is: {otp_code}\n\nThis code expires in 24 hours.\n\nChainSight Supply Chain Analytics System",
+            f"Hello {user.get_full_name()},\n\nYou have been registered as a transport company on ChainSight by {coop.name}.\n\nYour verification code is: {otp_code}\n\nThis code expires in 24 hours.\n\nChainSight Supply Chain Analytics System",
             settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True,
         )
 
     return Response({
-        'message': f'Transporter {user.get_full_name()} registered. OTP sent to {user.email or user.phone_number}.',
+        'message': f'Transport company {user.get_full_name()} registered. OTP sent to {user.email or user.phone_number}.',
         'user_id': user.id,
         'otp_code': otp_code,  # shown in dev so manager can manually share it
     }, status=status.HTTP_201_CREATED)
@@ -212,7 +214,29 @@ class CooperativeStockViewSet(viewsets.ModelViewSet):
         return CooperativeStock.objects.none()
 
     def perform_create(self, serializer):
-        serializer.save(cooperative=self.request.user.cooperative)
+        stock = serializer.save(cooperative=self.request.user.cooperative)
+        if stock.is_available:
+            self._notify_distributors_stock_available(stock)
+
+    def perform_update(self, serializer):
+        was_available = serializer.instance.is_available
+        stock = serializer.save()
+        if stock.is_available and not was_available:
+            self._notify_distributors_stock_available(stock)
+
+    @staticmethod
+    def _notify_distributors_stock_available(stock):
+        """Stock just became available for distributor requests — let active distributors know."""
+        from apps.distribution.models import Distributor
+        coop = stock.cooperative
+        for dist in Distributor.objects.filter(is_active=True).select_related('user'):
+            notify(
+                dist.user,
+                Notification.NotificationType.STOCK_AVAILABLE,
+                'New Stock Available',
+                f'{coop.name} just listed {stock.quantity_kg}kg of {stock.crop.name} (Grade {stock.quality_grade}) as available.',
+                related_object_type='cooperative_stock', related_object_id=stock.id,
+            )
 
 
 @api_view(['PATCH', 'DELETE'])

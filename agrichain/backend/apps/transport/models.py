@@ -15,12 +15,21 @@ class Transporter(models.Model):
 
     user         = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
                                         related_name='transporter_profile',
-                                        limit_choices_to={'role': 'TRANSPORTER'})
+                                        limit_choices_to={'role__in': ['TRANSPORTER', 'TRANSPORT_COMPANY']})
     company_name = models.CharField(max_length=200, blank=True, help_text="Optional — for company registrations")
     operating_districts = models.JSONField(default=list, help_text="List of districts this transporter covers")
     registered_by_cooperative = models.ForeignKey(
         'cooperatives.Cooperative', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='registered_transporters',
+    )
+    registered_by_distributor = models.ForeignKey(
+        'distribution.Distributor', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='registered_transporters',
+    )
+    parent_company = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='drivers',
+        help_text="Set when this Transporter is a driver registered by a Transport Company account.",
     )
 
     is_active  = models.BooleanField(default=True)
@@ -93,6 +102,15 @@ class TransportRequest(models.Model):
     transporter = models.ForeignKey(Transporter, on_delete=models.PROTECT, related_name='transport_requests')
     vehicle     = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True, related_name='transport_requests')
     leg_number  = models.IntegerField(choices=Leg.choices)
+
+    # Multi-stop run: a single pickup feeding several drop-offs for the same transporter in one
+    # go (e.g. a cooperative dispatching different crops to several distributors on one truck).
+    # All requests sharing a run_id are otherwise independent — each keeps its own status, Trip,
+    # and delivery confirmation; only the pickup and transporter are shared.
+    run_id       = models.UUIDField(null=True, blank=True, db_index=True,
+                                     help_text="Shared by all stops in the same multi-stop run.")
+    stop_sequence = models.PositiveIntegerField(null=True, blank=True,
+                                     help_text="Order of this stop within its run (1 = first).")
 
     # Route
     pickup_location    = models.CharField(max_length=300)

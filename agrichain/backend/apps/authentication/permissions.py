@@ -15,8 +15,9 @@ class IsCooperativeManager(permissions.BasePermission):
 
 
 class IsTransporter(permissions.BasePermission):
+    """Individual driver (TRANSPORTER) or Transport Company account — same shared functionality."""
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == "TRANSPORTER"
+        return request.user.is_authenticated and request.user.role in ("TRANSPORTER", "TRANSPORT_COMPANY")
 
 
 class IsDistributor(permissions.BasePermission):
@@ -40,9 +41,9 @@ class IsWarehouseManager(permissions.BasePermission):
 
 
 class IsFieldRole(permissions.BasePermission):
-    """Transporter or Market Agent."""
+    """Transporter, Transport Company, or Market Agent."""
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role in ("TRANSPORTER", "MARKET_AGENT")
+        return request.user.is_authenticated and request.user.role in ("TRANSPORTER", "TRANSPORT_COMPANY", "MARKET_AGENT")
 
 
 class IsAnalyticsRole(permissions.BasePermission):

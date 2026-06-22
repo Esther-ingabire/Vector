@@ -98,7 +98,8 @@ export default function TransporterDashboard() {
       transportApi.getMyTripHistory({ _silent: true }),
     ]).then(([pendRes, activeRes, histRes]) => {
       setPending(pendRes.status === 'fulfilled' ? (pendRes.value.data?.results ?? pendRes.value.data ?? []) : [])
-      setActiveTrip(activeRes.status === 'fulfilled' ? activeRes.value.data || null : null)
+      const activeData = activeRes.status === 'fulfilled' ? activeRes.value.data : null
+      setActiveTrip(Array.isArray(activeData) ? (activeData[0] || null) : (activeData || null))
       const hist = histRes.status === 'fulfilled' ? (histRes.value.data?.results ?? histRes.value.data ?? []) : []
       setHistory(hist.slice(0, 5).map(t => ({
         id: t.id,

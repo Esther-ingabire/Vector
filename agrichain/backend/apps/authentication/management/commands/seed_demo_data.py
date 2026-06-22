@@ -371,6 +371,12 @@ class Command(BaseCommand):
                 'company': 'Kalinda Transport Co.', 'districts': ['Musanze', 'Rubavu', 'Kigali'],
                 'plates': [('RAD 781 A', 'STANDARD_TRUCK', 5000), ('RAD 203 B', 'REFRIGERATED', 3000)],
                 'reg_coop': 'Musanze',
+                'drivers': [
+                    {'username': 'driver.mugenzi', 'first_name': 'Patrick', 'last_name': 'Mugenzi',
+                     'phone': '+250788200011', 'email': 'p.mugenzi@chainsight.demo'},
+                    {'username': 'driver.uwase', 'first_name': 'Diane', 'last_name': 'Uwase',
+                     'phone': '+250788200012', 'email': 'd.uwase@chainsight.demo'},
+                ],
             },
             {
                 'username': 'trans.gasana', 'first_name': 'Eric', 'last_name': 'Gasana',
@@ -378,17 +384,22 @@ class Command(BaseCommand):
                 'company': 'Gasana Logistics Ltd', 'districts': ['Nyanza', 'Kigali'],
                 'plates': [('RAD 554 C', 'PICKUP', 2000)],
                 'reg_coop': 'Nyanza',
+                'drivers': [
+                    {'username': 'driver.mutesi', 'first_name': 'Claudine', 'last_name': 'Mutesi',
+                     'phone': '+250788200021', 'email': 'c.mutesi@chainsight.demo'},
+                ],
             },
         ]
 
         trans_map = {}
+        driver_count = 0
         for td in trans_data:
             user, _ = User.objects.get_or_create(
                 username=td['username'],
                 defaults=dict(
                     first_name=td['first_name'], last_name=td['last_name'],
                     email=td['email'], phone_number=td['phone'],
-                    role='TRANSPORTER', organization_name=td['company'],
+                    role='TRANSPORT_COMPANY', organization_name=td['company'],
                     is_verified=True, must_change_password=False,
                 ),
             )
@@ -414,7 +425,30 @@ class Command(BaseCommand):
                 )
             trans_map[td['username']] = trans
 
-        self.stdout.write(f'    {len(trans_map)} transporters ready')
+            # Individual drivers registered by this Transport Company — each gets their own
+            # real login, distinct from the company's. Mirrors the "My Fleet → Register
+            # Driver" flow exactly, just seeded instead of done through the UI.
+            for dd in td.get('drivers', []):
+                d_user, _ = User.objects.get_or_create(
+                    username=dd['username'],
+                    defaults=dict(
+                        first_name=dd['first_name'], last_name=dd['last_name'],
+                        email=dd['email'], phone_number=dd['phone'],
+                        role='TRANSPORTER', is_verified=True, must_change_password=False,
+                    ),
+                )
+                d_user.set_password(DEMO_PASSWORD)
+                d_user.save()
+                Transporter.objects.get_or_create(
+                    user=d_user,
+                    defaults=dict(
+                        operating_districts=td['districts'],
+                        parent_company=trans,
+                    ),
+                )
+                driver_count += 1
+
+        self.stdout.write(f'    {len(trans_map)} transport companies + {driver_count} drivers ready')
         return trans_map
 
     # ── Distributors ─────────────────────────────────────────────────────────
@@ -536,9 +570,10 @@ class Command(BaseCommand):
         from apps.traceability.models import Batch
         from apps.transport.models import TransportRequest, Trip, Vehicle, GPSTrack
         from apps.distribution.models import (
-            Distributor, CollectionNotice, Order,
+            Distributor, CollectionNotice, Order, ProduceRequest, SupplyAgreement,
         )
         from apps.market_agents.models import CollectionConfirmation, WasteReport
+        from apps.iot.models import VehicleIoTReading
 
         self.stdout.write('  Seeding batches, trips, orders, and waste reports...')
 
@@ -588,8 +623,10 @@ class Command(BaseCommand):
                     dist  = random.choice(dist_list)
                     agent = random.choice(agent_list)
 
-                    # Determine status — last month's 2nd batch stays in progress
-                    is_completed = not (month_idx == 5 and batch_num == 1)
+                    # Determine status — last month's batches stay in progress, so there's
+                    # always a healthy spread of live in-transit batches (GPS + IoT) to demo,
+                    # not just a single one.
+                    is_completed = not (month_idx == 5)
 
                     # TransportRequest (leg 1)
                     tr = TransportRequest.objects.create(
@@ -604,15 +641,32 @@ class Command(BaseCommand):
                         destination_gps_lng=dist.warehouse_gps_lng,
                         cargo_description=f"{crop_name} — Grade {grade}",
                         estimated_cargo_weight_kg=dispatch_kg,
+                        requires_refrigeration=crop.requires_cold_chain,
                         required_pickup_datetime=dispatch_dt + timedelta(hours=1),
                         status='COMPLETED' if is_completed else 'IN_PROGRESS',
                         accepted_at=dispatch_dt + timedelta(minutes=30),
+                    )
+
+                    # Real dispatch flow always ties a Batch to a SupplyAgreement (the
+                    # distributor must have requested it first) — without this, the
+                    # distributor's own batch list can't see the batch at all, since
+                    # BatchViewSet scopes distributor visibility through this link.
+                    pr = ProduceRequest.objects.create(
+                        distributor=dist, cooperative=coop, crop=crop,
+                        quantity_kg=dispatch_kg, quality_grade_required=grade,
+                        required_delivery_date=dispatch_dt.date(),
+                        status='ACCEPTED', responded_at=dispatch_dt - timedelta(days=1),
+                    )
+                    sa = SupplyAgreement.objects.create(
+                        produce_request=pr, agreed_quantity_kg=dispatch_kg,
+                        agreed_quality_grade=grade, agreed_delivery_date=dispatch_dt.date(),
                     )
 
                     # Batch
                     batch = Batch.objects.create(
                         cooperative=coop,
                         crop=crop,
+                        supply_agreement=sa,
                         dispatched_by=mgr,
                         dispatch_weight_kg=dispatch_kg,
                         quality_grade_at_dispatch=grade,
@@ -721,7 +775,88 @@ class Command(BaseCommand):
                                 timestamp=actual_pickup + timedelta(minutes=15 * (i + 1)),
                             )
 
+                        # Vehicle temperature readings — only meaningful for cold-chain cargo,
+                        # but always seeded so "Live Data" has something real to show. One
+                        # district's trip runs slightly hot so the breach-alert UI has a
+                        # real case to display too, not just clean readings.
+                        is_breach_demo = (district == 'Musanze')
+                        base_temp = (float(crop.safe_temp_max_amber) - 3) if crop.safe_temp_max_amber else 5.0
+                        for i in range(4):
+                            temp = base_temp + (3.5 if is_breach_demo and i == 3 else random.uniform(-0.5, 0.8))
+                            VehicleIoTReading.objects.create(
+                                trip=trip,
+                                temperature_celsius=round(temp, 1),
+                                timestamp=actual_pickup + timedelta(minutes=10 * (i + 1)),
+                            )
+
                     batch_count += 1
+
+        # One explicit multi-stop / shared-trip scenario: a cooperative dispatches two
+        # different crops to the same distributor on one truck — so the distributor's
+        # "Confirm All" bulk-receipt UI and the cooperative's "sharing this trip" badge
+        # both have a real, reliable case to demo right after a reset.
+        musanze_coop, musanze_mgr = coops['Musanze']
+        shared_dist = dist_list[0]
+        shared_trans = trans_list[0]
+        shared_pickup_dt = timezone.now() - timedelta(hours=3)
+        shared_tr = TransportRequest.objects.create(
+            requested_by_cooperative=musanze_coop,
+            transporter=shared_trans,
+            leg_number=1,
+            pickup_location=DISTRICT_CFG['Musanze']['pickup_loc'],
+            pickup_gps_lat=DISTRICT_CFG['Musanze']['gps'][0],
+            pickup_gps_lng=DISTRICT_CFG['Musanze']['gps'][1],
+            destination=shared_dist.warehouse_location,
+            destination_gps_lat=shared_dist.warehouse_gps_lat,
+            destination_gps_lng=shared_dist.warehouse_gps_lng,
+            cargo_description='Mixed produce — shared trip',
+            estimated_cargo_weight_kg=3200,
+            requires_refrigeration=False,
+            required_pickup_datetime=shared_pickup_dt,
+            status='ACCEPTED',
+            accepted_at=shared_pickup_dt,
+        )
+        shared_trip = Trip.objects.create(transport_request=shared_tr, actual_pickup_datetime=shared_pickup_dt, pickup_confirmed_at=shared_pickup_dt)
+        for i, progress in enumerate((0.25, 0.5, 0.7)):
+            GPSTrack.objects.create(
+                trip=shared_trip,
+                latitude=round(DISTRICT_CFG['Musanze']['gps'][0] + (float(shared_dist.warehouse_gps_lat) - DISTRICT_CFG['Musanze']['gps'][0]) * progress, 6),
+                longitude=round(DISTRICT_CFG['Musanze']['gps'][1] + (float(shared_dist.warehouse_gps_lng) - DISTRICT_CFG['Musanze']['gps'][1]) * progress, 6),
+                speed_kmh=round(random.uniform(35, 55), 1),
+                timestamp=shared_pickup_dt + timedelta(minutes=20 * (i + 1)),
+            )
+        for i in range(4):
+            VehicleIoTReading.objects.create(
+                trip=shared_trip,
+                temperature_celsius=round(random.uniform(8, 11), 1),
+                timestamp=shared_pickup_dt + timedelta(minutes=15 * (i + 1)),
+            )
+        for crop_name, kg in (('Avocados', 1800), ('Bananas', 1400)):
+            crop = crops.get(crop_name)
+            if not crop:
+                continue
+            shared_pr = ProduceRequest.objects.create(
+                distributor=shared_dist, cooperative=musanze_coop, crop=crop,
+                quantity_kg=kg, quality_grade_required='A',
+                required_delivery_date=shared_pickup_dt.date(),
+                status='ACCEPTED', responded_at=shared_pickup_dt - timedelta(days=1),
+            )
+            shared_sa = SupplyAgreement.objects.create(
+                produce_request=shared_pr, agreed_quantity_kg=kg,
+                agreed_quality_grade='A', agreed_delivery_date=shared_pickup_dt.date(),
+            )
+            Batch.objects.create(
+                cooperative=musanze_coop,
+                crop=crop,
+                supply_agreement=shared_sa,
+                dispatched_by=musanze_mgr,
+                dispatch_weight_kg=kg,
+                quality_grade_at_dispatch='A',
+                dispatch_timestamp=shared_pickup_dt,
+                transport_request_leg1=shared_tr,
+                current_status='IN_TRANSIT_LEG1',
+            )
+            batch_count += 1
 
         self.stdout.write(f'    {batch_count} batches created (with trips, orders, confirmations, waste reports)')
 
@@ -1002,8 +1137,11 @@ class Command(BaseCommand):
             f'  {"Cooperative (Rubavu)":<25} {"i.mukamana@chainsight.demo":<32}',
             f'  {"Cooperative (Nyanza)":<25} {"mc.uwimana@chainsight.demo":<32}',
             f'  {"Cooperative (Kigali)":<25} {"p.habimana@chainsight.demo":<32}',
-            f'  {"Transporter 1":<25} {"a.kalinda@chainsight.demo":<32}',
-            f'  {"Transporter 2":<25} {"e.gasana@chainsight.demo":<32}',
+            f'  {"Transport Company 1":<25} {"a.kalinda@chainsight.demo":<32}',
+            f'  {"  - Driver (Mugenzi)":<25} {"p.mugenzi@chainsight.demo":<32}',
+            f'  {"  - Driver (Uwase)":<25} {"d.uwase@chainsight.demo":<32}',
+            f'  {"Transport Company 2":<25} {"e.gasana@chainsight.demo":<32}',
+            f'  {"  - Driver (Mutesi)":<25} {"c.mutesi@chainsight.demo":<32}',
             f'  {"Distributor 1":<25} {"s.nkurunziza@chainsight.demo":<32}',
             f'  {"Distributor 2":<25} {"e.ingabire@chainsight.demo":<32}',
             f'  {"Market Agent (Kimironko)":<25} {"g.uwera@chainsight.demo":<32}',

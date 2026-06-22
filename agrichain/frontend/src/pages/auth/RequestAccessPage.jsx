@@ -16,7 +16,7 @@ const ROLES = [
   { value: 'COOPERATIVE_MANAGER', label: 'Cooperative Manager', docs: ['National ID', 'Cooperative Registration Certificate'] },
   { value: 'DISTRIBUTOR',         label: 'Distributor',         docs: ['National ID', 'Company Registration'] },
   { value: 'MARKET_AGENT',        label: 'Market Agent',        docs: ['National ID'] },
-  { value: 'TRANSPORTER',         label: 'Transport Company',   docs: ['National ID', 'Vehicle Registration / Driving Licence'] },
+  { value: 'TRANSPORT_COMPANY',   label: 'Transport Company',   docs: ['National ID', 'Vehicle Registration / Driving Licence'] },
   { value: 'WAREHOUSE_MANAGER',   label: 'Warehouse Manager',   docs: ['National ID', 'Business Registration'] },
 ]
 

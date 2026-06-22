@@ -122,6 +122,11 @@ export default function ActiveBatches() {
                         {batch.crop_name} <span className="text-gray-400 font-normal">· {Number(batch.dispatch_weight_kg).toLocaleString()} kg</span>
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5 font-mono">{batch.batch_id_short}</p>
+                      {batch.destination && (
+                        <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 flex-shrink-0" /> To {batch.destination}
+                        </p>
+                      )}
                       {mates > 0 && (
                         <p className="text-xs text-blue-600 mt-0.5">Sharing this trip with {mates} other batch{mates > 1 ? 'es' : ''}</p>
                       )}
@@ -258,6 +263,7 @@ export default function ActiveBatches() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {[
                   ['Crop', (detail || selected).crop_name],
+                  ['Destination', (detail || selected).destination],
                   ['Dispatched weight', `${Number((detail || selected).dispatch_weight_kg).toLocaleString()} kg`],
                   ['Grade at dispatch', `Grade ${(detail || selected).quality_grade_at_dispatch || '—'}`],
                   ['Status', (detail || selected).current_status?.replace(/_/g, ' ')],

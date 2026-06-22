@@ -111,6 +111,7 @@ export default function MyFacilities() {
         <MapboxMap
           height={420}
           fitToMarkers
+          showSearch
           markers={facilities
             .filter(f => f.gps_latitude != null && f.gps_longitude != null)
             .map(f => ({

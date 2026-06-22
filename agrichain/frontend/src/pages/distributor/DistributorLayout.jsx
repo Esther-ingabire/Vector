@@ -1,5 +1,5 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, ShoppingCart, Truck, BarChart2, Settings, FileDown, QrCode } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, ShoppingCart, Truck, BarChart2, Settings, FileDown, QrCode, Trash2, Users } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import DistributorDashboard from './DistributorDashboard.jsx'
@@ -8,6 +8,8 @@ import MarketAgentOrders from './MarketAgentOrders.jsx'
 import IncomingDeliveries from './IncomingDeliveries.jsx'
 import DistributorTraceability from './DistributorTraceability.jsx'
 import DistributionAnalytics from './DistributionAnalytics.jsx'
+import WasteReportPage from './WasteReportPage.jsx'
+import Transporters from './Transporters.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
@@ -16,8 +18,10 @@ const navItems = [
   { to: '/distributor/orders', label: 'Orders & Cooperatives', icon: ClipboardList },
   { to: '/distributor/agent-orders', label: 'Market Agent Orders', icon: ShoppingCart },
   { to: '/distributor/deliveries', label: 'Incoming Deliveries', icon: Truck },
+  { to: '/distributor/transporters', label: 'Transporters', icon: Users },
   { to: '/distributor/traceability', label: 'Traceability', icon: QrCode },
   { to: '/distributor/analytics', label: 'Distribution Analytics', icon: BarChart2 },
+  { to: '/distributor/waste', label: 'Waste Report', icon: Trash2 },
   { to: '/distributor/reports', label: 'Reports', icon: FileDown },
   { to: '/distributor/settings', label: 'Settings', icon: Settings },
 ]
@@ -34,8 +38,10 @@ export default function DistributorLayout() {
             <Route path="orders" element={<OrderManagement />} />
             <Route path="agent-orders" element={<MarketAgentOrders />} />
             <Route path="deliveries" element={<IncomingDeliveries />} />
+            <Route path="transporters" element={<Transporters />} />
             <Route path="traceability" element={<DistributorTraceability />} />
             <Route path="analytics" element={<DistributionAnalytics />} />
+            <Route path="waste" element={<WasteReportPage />} />
             <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/distributor" replace />} />

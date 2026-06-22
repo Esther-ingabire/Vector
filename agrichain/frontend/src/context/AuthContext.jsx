@@ -66,6 +66,7 @@ export function navigateByRole(role, navigate) {
     ADMIN: '/admin',
     COOPERATIVE_MANAGER: '/cooperative',
     TRANSPORTER: '/transporter',
+    TRANSPORT_COMPANY: '/transporter',
     DISTRIBUTOR: '/distributor',
     MARKET_AGENT: '/market-agent',
     MINAGRI_OFFICER: '/minagri',

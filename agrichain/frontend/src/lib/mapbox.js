@@ -9,14 +9,25 @@ export const MAPBOX_STYLE = 'mapbox://styles/mapbox/streets-v12'
 export const RWANDA_CENTER = [29.8739, -1.9403]
 
 /**
- * Real road-following route between two points via the Mapbox Directions API.
- * Returns { coordinates: [[lng,lat], ...], distanceKm, durationMin } or null on failure.
+ * Real road-following route via the Mapbox Directions API.
+ * Accepts either fetchDrivingRoute(origin, destination) for a single leg, or
+ * fetchDrivingRoute(waypoints) with 2+ [lng,lat] points for a multi-stop run —
+ * Mapbox visits them in the given order (up to 25 points per request).
+ * `profile` is 'driving' (default) or 'driving-traffic' (live-traffic-aware ETA, real
+ * Mapbox data — not a heuristic), used for the transporter's traffic-aware Active Trip view.
+ * Returns { coordinates: [[lng,lat], ...], distanceKm, durationMin, typicalDurationMin, legs }
+ * or null on failure. `typicalDurationMin` (only present for 'driving-traffic') is what the
+ * trip would take with no current congestion — compare it to `durationMin` to know if traffic
+ * is adding delay right now.
  */
-export async function fetchDrivingRoute(origin, destination) {
+export async function fetchDrivingRoute(origin, destination, profile = 'driving') {
   if (!MAPBOX_TOKEN) return null
-  const coords = `${origin[0]},${origin[1]};${destination[0]},${destination[1]}`
-  const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}` +
-    `?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`
+  const waypoints = destination ? [origin, destination] : origin
+  if (!Array.isArray(waypoints) || waypoints.length < 2) return null
+  const coords = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(';')
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}` +
+    `?geometries=geojson&overview=full&annotations=duration${profile === 'driving-traffic' ? ',congestion' : ''}` +
+    `&access_token=${MAPBOX_TOKEN}`
   try {
     const res = await fetch(url)
     if (!res.ok) return null
@@ -27,6 +38,9 @@ export async function fetchDrivingRoute(origin, destination) {
       coordinates: route.geometry.coordinates,
       distanceKm: route.distance / 1000,
       durationMin: route.duration / 60,
+      typicalDurationMin: route.duration_typical != null ? route.duration_typical / 60 : null,
+      congestion: route.legs?.flatMap(l => l.annotation?.congestion || []) || [],
+      legs: route.legs,
     }
   } catch {
     return null

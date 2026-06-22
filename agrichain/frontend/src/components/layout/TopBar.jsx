@@ -8,7 +8,7 @@ import toast from 'react-hot-toast'
 
 const ROLE_LABELS = {
   ADMIN: 'ADMIN', COOPERATIVE_MANAGER: 'COOPERATIVE MANAGER',
-  TRANSPORTER: 'TRANSPORTER', DISTRIBUTOR: 'DISTRIBUTOR',
+  TRANSPORTER: 'TRANSPORTER', TRANSPORT_COMPANY: 'TRANSPORT COMPANY', DISTRIBUTOR: 'DISTRIBUTOR',
   MARKET_AGENT: 'MARKET AGENT', MINAGRI_OFFICER: 'MINAGRI OFFICER',
 }
 
@@ -36,6 +36,10 @@ const SEED_NOTIFICATIONS = {
     { id: 't1', Icon: Info,          iconCls: 'text-primary-600 bg-primary-50',  title: 'New Pickup Assignment',           body: 'Pickup at Musanze Cooperative scheduled for 09:00.',                   ts: new Date(Date.now() - 60 * 60000),  read: false },
     { id: 't2', Icon: Package,       iconCls: 'text-success-600 bg-success-50',  title: 'Delivery Confirmed',              body: 'Batch #BT-2026-0038 delivery confirmed by Kigali Distributor.',         ts: new Date(Date.now() - 6 * 3600000), read: true  },
   ],
+  TRANSPORT_COMPANY: [
+    { id: 't1', Icon: Info,          iconCls: 'text-primary-600 bg-primary-50',  title: 'New Pickup Assignment',           body: 'Pickup at Musanze Cooperative scheduled for 09:00.',                   ts: new Date(Date.now() - 60 * 60000),  read: false },
+    { id: 't2', Icon: Package,       iconCls: 'text-success-600 bg-success-50',  title: 'Delivery Confirmed',              body: 'Batch #BT-2026-0038 delivery confirmed by Kigali Distributor.',         ts: new Date(Date.now() - 6 * 3600000), read: true  },
+  ],
   MINAGRI_OFFICER: [
     { id: 'g1', Icon: Info,          iconCls: 'text-primary-600 bg-primary-50',  title: 'Weekly Report Ready',             body: 'National supply chain summary for Week 23 is available.',              ts: new Date(Date.now() - 2 * 3600000), read: false },
     { id: 'g2', Icon: AlertTriangle, iconCls: 'text-warning-600 bg-warning-50',  title: 'Loss Rate Spike – Eastern',       body: 'Eastern Province post-harvest loss rate rose to 18% this week.',       ts: new Date(Date.now() - 8 * 3600000), read: true  },
@@ -51,13 +55,23 @@ function mapApiNotification(n) {
     body: n.message || '',
     ts: new Date(n.created_at),
     read: n.is_read,
+    relatedType: n.related_object_type,
+    relatedId: n.related_object_id,
   }
+}
+
+// Where each role's batch-detail page lives — used to deep-link a "batch" notification
+// (e.g. a transporter's incident report) straight to that batch instead of just a toast.
+const ROLE_BATCH_DETAIL_PATH = {
+  COOPERATIVE_MANAGER: '/cooperative/traceability',
+  DISTRIBUTOR: '/distributor/traceability',
 }
 
 const ROLE_SETTINGS_PATH = {
   ADMIN: '/admin/settings',
   COOPERATIVE_MANAGER: '/cooperative/settings',
   TRANSPORTER: '/transporter/settings',
+  TRANSPORT_COMPANY: '/transporter/settings',
   DISTRIBUTOR: '/distributor/settings',
   MARKET_AGENT: '/market-agent/settings',
   MINAGRI_OFFICER: '/minagri/settings',
@@ -140,7 +154,7 @@ export default function TopBar() {
     <header className="h-14 bg-white/80 backdrop-blur-xl border-b border-gray-200/50 flex items-center justify-between px-6 flex-shrink-0 sticky top-0 z-30">
       <div />
       <div className="flex items-center gap-2">
-        {user?.role === 'TRANSPORTER' && (
+        {(user?.role === 'TRANSPORTER' || user?.role === 'TRANSPORT_COMPANY') && (
           <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600 mr-1">
             <span className="text-gray-400">Status:</span>
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-50 border border-success-200 text-success-700 text-xs font-semibold">
@@ -197,15 +211,32 @@ export default function TopBar() {
                   </div>
                 ) : notifications.map(n => {
                   const NIcon = n.Icon
+                  const batchPath = n.relatedType === 'batch' && n.relatedId
+                    ? ROLE_BATCH_DETAIL_PATH[user?.role]
+                    : null
+                  const handleClick = () => {
+                    if (!n.read) {
+                      analyticsApi.markRead(n.id).catch(() => {})
+                      setNotifications(prev => prev.map(p => p.id === n.id ? { ...p, read: true } : p))
+                    }
+                    if (batchPath) {
+                      setOpen(false)
+                      navigate(`${batchPath}?batch=${n.relatedId}`)
+                    }
+                  }
                   return (
-                    <div key={n.id} className={`flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50 ${!n.read ? 'bg-primary-50/40' : ''}`}>
+                    <div key={n.id} onClick={handleClick}
+                      className={`flex gap-3 px-4 py-3 transition-colors hover:bg-gray-50 ${!n.read ? 'bg-primary-50/40' : ''} ${batchPath ? 'cursor-pointer' : ''}`}>
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${n.iconCls}`}>
                         <NIcon className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className={`text-sm text-gray-800 leading-snug ${!n.read ? 'font-semibold' : 'font-medium'}`}>{n.title}</p>
                         <p className="text-xs text-gray-400 mt-0.5 leading-snug">{n.body}</p>
-                        <p className="text-[11px] text-gray-300 mt-1">{formatDistanceToNow(n.ts, { addSuffix: true })}</p>
+                        <p className="text-[11px] text-gray-300 mt-1">
+                          {formatDistanceToNow(n.ts, { addSuffix: true })}
+                          {batchPath && <span className="text-primary-600 font-medium ml-2">View batch →</span>}
+                        </p>
                       </div>
                       {!n.read && <div className="w-2 h-2 bg-primary-500 rounded-full mt-2.5 flex-shrink-0" />}
                     </div>

@@ -53,3 +53,6 @@ postgres_data/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Diagram rendering tool (large binary, not project content)
+diagrams/plantuml.jar

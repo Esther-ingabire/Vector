@@ -1,5 +1,5 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Users, ClipboardList, FileText, Activity, Megaphone, Settings, Inbox } from 'lucide-react'
+import { LayoutDashboard, Users, ClipboardList, FileText, Activity, Megaphone, Settings, Inbox, FileDown } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import AdminDashboard from './AdminDashboard.jsx'
@@ -10,6 +10,7 @@ import DataIntegrationMonitor from './DataIntegrationMonitor.jsx'
 import SystemAnnouncements from './SystemAnnouncements.jsx'
 import FeedbackInbox from './FeedbackInbox.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
+import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
 const navItems = [
   { to: '/admin',                    label: 'Dashboard',           icon: LayoutDashboard, end: true },
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/admin/data-sources',       label: 'Data Integration',    icon: Activity },
   { to: '/admin/feedback',           label: 'Feedback & Support',  icon: Inbox },
   { to: '/admin/announcements',      label: 'Announcements',       icon: Megaphone },
+  { to: '/admin/reports',            label: 'Reports',              icon: FileDown },
   { to: '/admin/settings',           label: 'Settings',            icon: Settings },
 ]
 
@@ -38,6 +40,7 @@ export default function AdminLayout() {
             <Route path="data-sources" element={<DataIntegrationMonitor />} />
             <Route path="feedback" element={<FeedbackInbox />} />
             <Route path="announcements" element={<SystemAnnouncements />} />
+            <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>

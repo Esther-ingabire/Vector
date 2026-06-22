@@ -8,8 +8,10 @@ router.register(r'produce-requests', views.ProduceRequestViewSet, basename='prod
 router.register(r'collection-notices', views.CollectionNoticeViewSet, basename='collection-notices')
 router.register(r'notices', views.CollectionNoticeViewSet, basename='notices')  # alias used by frontend
 router.register(r'orders', views.OrderViewSet, basename='orders')
+router.register(r'waste-reports', views.DistributorWasteReportViewSet, basename='distributor-waste-reports')
 
 urlpatterns = [
+    path('register-own-driver/', views.register_own_driver, name='register-own-driver'),
     path('', include(router.urls)),
     # Market agent link management (distributor side)
     path('market-agents/', views.MarketAgentListView.as_view()),

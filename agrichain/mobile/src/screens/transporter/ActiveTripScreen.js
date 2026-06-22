@@ -91,10 +91,13 @@ export default function ActiveTripScreen() {
     if (!isRefresh) setLoading(true);
     try {
       const { data } = await getMyActiveTrip();
-      // Backend returns trip with nested `request` object
-      setTrip(data?.id ? data : null);
-      if (data?.id) {
-        getVehicleIotReadings(data.id)
+      // Backend returns a list of active trips (each with a nested `request` object) — a
+      // transporter can have several active stops on one multi-stop run. This screen shows
+      // the first one; the dedicated multi-stop view on web covers the full stop list.
+      const first = Array.isArray(data) ? data[0] : data;
+      setTrip(first?.id ? first : null);
+      if (first?.id) {
+        getVehicleIotReadings(first.id)
           .then(({ data: readings }) => setLatestTemp(readings?.length ? readings[readings.length - 1].temperature_celsius : null))
           .catch(() => setLatestTemp(null));
       }

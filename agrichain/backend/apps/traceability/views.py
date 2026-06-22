@@ -30,7 +30,7 @@ class BatchViewSet(viewsets.ModelViewSet):
                 ).distinct()
             except Exception:
                 return Batch.objects.none()
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 transporter = user.transporter_profile
                 return (
@@ -93,28 +93,35 @@ class BatchViewSet(viewsets.ModelViewSet):
 
         trip_ids = []
         active_request = None
+        latest_request = None
         for req in (batch.transport_request_leg1, batch.transport_request_leg2):
             if req and hasattr(req, 'trip'):
                 trip_ids.append(req.trip.id)
+                latest_request = req  # leg2 (if present) wins as the most relevant leg
                 if not req.trip.delivery_confirmed_at:
                     active_request = req
 
         readings = VehicleIoTReading.objects.filter(trip_id__in=trip_ids).order_by('-timestamp')[:50]
         gps = GPSTrack.objects.filter(trip_id__in=trip_ids).order_by('timestamp')[:200]
+        # Show the route even after delivery — a completed journey, not just an in-progress
+        # one — so Traceability always has a real map instead of falling back to text only.
+        route_request = active_request or latest_request
         route = None
-        if active_request:
+        if route_request:
             route = {
-                'pickup_location': active_request.pickup_location,
-                'pickup_gps_lat': active_request.pickup_gps_lat,
-                'pickup_gps_lng': active_request.pickup_gps_lng,
-                'destination': active_request.destination,
-                'destination_gps_lat': active_request.destination_gps_lat,
-                'destination_gps_lng': active_request.destination_gps_lng,
+                'pickup_location': route_request.pickup_location,
+                'pickup_gps_lat': route_request.pickup_gps_lat,
+                'pickup_gps_lng': route_request.pickup_gps_lng,
+                'destination': route_request.destination,
+                'destination_gps_lat': route_request.destination_gps_lat,
+                'destination_gps_lng': route_request.destination_gps_lng,
+                'delivered': route_request is not active_request,
             }
         return Response({
             'temperature_readings': VehicleIoTReadingSerializer(readings, many=True).data,
             'gps_tracks': GPSTrackSerializer(gps, many=True).data,
             'route': route,
+            'is_live': active_request is not None,
         })
 
     @action(detail=False, methods=['get'])

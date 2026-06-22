@@ -47,7 +47,7 @@ export default function App() {
           <Route path="/cooperative/*" element={<ProtectedRoute roles={['COOPERATIVE_MANAGER']}><CooperativeLayout /></ProtectedRoute>} />
           <Route path="/distributor/*" element={<ProtectedRoute roles={['DISTRIBUTOR']}><DistributorLayout /></ProtectedRoute>} />
           <Route path="/minagri/*" element={<ProtectedRoute roles={['MINAGRI_OFFICER']}><MinagriLayout /></ProtectedRoute>} />
-          <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER']}><TransporterLayout /></ProtectedRoute>} />
+          <Route path="/transporter/*" element={<ProtectedRoute roles={['TRANSPORTER', 'TRANSPORT_COMPANY']}><TransporterLayout /></ProtectedRoute>} />
           <Route path="/market-agent/*" element={<ProtectedRoute roles={['MARKET_AGENT']}><MarketAgentLayout /></ProtectedRoute>} />
           <Route path="/warehouse/*" element={<ProtectedRoute roles={['WAREHOUSE_MANAGER']}><WarehouseLayout /></ProtectedRoute>} />
 

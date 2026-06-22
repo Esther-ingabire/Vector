@@ -149,6 +149,11 @@ class UserCreateSerializer(serializers.ModelSerializer):
         while User.objects.filter(username=username).exists():
             username = f"{base}.{suffix}"
             suffix += 1
+        # email is unique=True but stored as '' (not NULL) if left blank — and unlike NULL,
+        # Postgres enforces uniqueness on '', so a second blank-email registration would
+        # fail with a false "email already exists". Normalize blank to None to avoid that.
+        if not validated_data.get("email"):
+            validated_data["email"] = None
         temp_password = secrets.token_urlsafe(16)
         user = User(username=username, **validated_data)
         user.set_password(temp_password)

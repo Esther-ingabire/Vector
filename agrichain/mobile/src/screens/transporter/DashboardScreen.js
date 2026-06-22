@@ -135,7 +135,8 @@ export default function DashboardScreen({ navigation }) {
 
       if (tripRes.status === 'fulfilled') {
         const d = tripRes.value.data;
-        setActiveTrip(d?.id ? d : null);
+        const first = Array.isArray(d) ? d[0] : d;
+        setActiveTrip(first?.id ? first : null);
       } else {
         setActiveTrip(null);
       }

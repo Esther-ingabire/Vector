@@ -1,8 +1,17 @@
 import { useRef, useEffect, useState } from 'react'
 import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl'
 import mapboxgl from 'mapbox-gl'
+import { Map as MapIcon, Satellite, Mountain, Navigation2 } from 'lucide-react'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { MAPBOX_TOKEN, MAPBOX_STYLE, RWANDA_CENTER } from '../../lib/mapbox.js'
+import PlaceSearchInput from './PlaceSearchInput.jsx'
+
+const MAP_STYLES = {
+  streets:    { label: 'Default',    icon: MapIcon,     url: MAPBOX_STYLE },
+  navigation: { label: 'Navigation', icon: Navigation2, url: 'mapbox://styles/mapbox/navigation-day-v1' },
+  satellite:  { label: 'Satellite',  icon: Satellite,   url: 'mapbox://styles/mapbox/satellite-streets-v12' },
+  terrain:    { label: 'Terrain',    icon: Mountain,     url: 'mapbox://styles/mapbox/outdoors-v12' },
+}
 
 /**
  * Shared Mapbox map used across roles.
@@ -21,15 +30,27 @@ export default function MapboxMap({
   height = 360,
   fitToMarkers = false,
   onMarkerClick = null,
+  showSearch = false,
+  onSearchSelect = null,
+  showStyleSwitcher = true,
 }) {
   const mapRef = useRef(null)
   const [popupMarker, setPopupMarker] = useState(null)
   const [loadError, setLoadError] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [styleKey, setStyleKey] = useState('streets')
   const [viewState, setViewState] = useState({
     longitude: center ? center[1] : RWANDA_CENTER[0],
     latitude: center ? center[0] : RWANDA_CENTER[1],
     zoom,
   })
+
+  const handleSearchSelect = (result) => {
+    const map = mapRef.current?.getMap?.()
+    if (map) map.flyTo({ center: [result.lng, result.lat], zoom: 14, duration: 800 })
+    else setViewState(v => ({ ...v, longitude: result.lng, latitude: result.lat, zoom: 14 }))
+    onSearchSelect?.(result)
+  }
 
   const validMarkers = markers.filter(m => m.lat != null && m.lng != null)
 
@@ -64,22 +85,65 @@ export default function MapboxMap({
   }
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-100" style={{ height }}>
+    <div className="relative rounded-xl overflow-hidden border border-gray-100" style={{ height }}>
+      {!loaded && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-50 text-sm text-gray-400">
+          Loading map…
+        </div>
+      )}
+
+      {showSearch && (
+        <div className="absolute top-3 left-3 z-20 w-64 max-w-[calc(100%-5.5rem)]">
+          <PlaceSearchInput onSelect={handleSearchSelect} placeholder="Search a place…" />
+        </div>
+      )}
+
+      {showStyleSwitcher && (
+        <div className="absolute bottom-3 left-3 z-20 flex bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+          {Object.entries(MAP_STYLES).map(([key, s]) => (
+            <button
+              key={key}
+              type="button"
+              title={s.label}
+              onClick={() => setStyleKey(key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${styleKey === key ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <s.icon className="w-3.5 h-3.5" /> {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <Map
         ref={mapRef}
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         onError={() => setLoadError(true)}
+        onLoad={() => setLoaded(true)}
         mapboxAccessToken={MAPBOX_TOKEN}
-        mapStyle={MAPBOX_STYLE}
+        mapStyle={MAP_STYLES[styleKey].url}
         style={{ width: '100%', height: '100%' }}
       >
-        <NavigationControl position="top-right" showCompass={false} />
+        <NavigationControl position="top-right" showCompass={true} />
 
         {routes.filter(r => r.coordinates?.length > 1).map(r => (
           <Source key={r.id} type="geojson" data={{ type: 'Feature', geometry: { type: 'LineString', coordinates: r.coordinates } }}>
+            {/* White halo underneath — makes the route pop against any map style/terrain,
+                the same trick Google/Apple Maps use instead of a flat single-color line. */}
+            {!r.dashArray && (
+              <Layer
+                type="line"
+                layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+                paint={{
+                  'line-color': '#ffffff',
+                  'line-width': (r.width ?? 4) + 3,
+                  'line-opacity': 0.9,
+                }}
+              />
+            )}
             <Layer
               type="line"
+              layout={{ 'line-cap': 'round', 'line-join': 'round' }}
               paint={{
                 'line-color': r.color || '#228b52',
                 'line-width': r.width ?? 4,

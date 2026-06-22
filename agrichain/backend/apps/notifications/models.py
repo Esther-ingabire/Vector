@@ -27,6 +27,7 @@ class Notification(models.Model):
         WAREHOUSE_RENTAL_REQUESTED  = 'WAREHOUSE_RENTAL_REQUESTED', 'New Warehouse Rental Request'
         WAREHOUSE_RENTAL_RESPONSE   = 'WAREHOUSE_RENTAL_RESPONSE',  'Warehouse Rental Request Update'
         # Distributor
+        STOCK_AVAILABLE             = 'STOCK_AVAILABLE',            'New Stock Available from Cooperative'
         COOP_RESPONSE               = 'COOP_RESPONSE',              'Cooperative Responded to Request'
         BATCH_IN_TRANSIT            = 'BATCH_IN_TRANSIT',           'Batch Is Now In Transit'
         BATCH_DELIVERED             = 'BATCH_DELIVERED',            'Batch Arrived — Confirm Receipt'

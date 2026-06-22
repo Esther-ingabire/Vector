@@ -20,6 +20,7 @@ class User(AbstractUser):
     class Role(models.TextChoices):
         ADMIN               = 'ADMIN',              'System Administrator'
         COOPERATIVE_MANAGER = 'COOPERATIVE_MANAGER', 'Cooperative Manager'
+        TRANSPORT_COMPANY   = 'TRANSPORT_COMPANY',   'Transport Company'
         TRANSPORTER         = 'TRANSPORTER',         'Transporter'
         DISTRIBUTOR         = 'DISTRIBUTOR',         'Distributor'
         MARKET_AGENT        = 'MARKET_AGENT',        'Market Agent'

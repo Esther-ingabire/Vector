@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Distributor, ProduceRequest, SupplyAgreement, CollectionNotice, Order
+from .models import Distributor, ProduceRequest, SupplyAgreement, CollectionNotice, Order, DistributorWasteReport
 
 
 def _resolve_crop(name):
@@ -24,12 +24,17 @@ class DistributorSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     distance_km = serializers.SerializerMethodField()
     active_notices = serializers.SerializerMethodField()
+    contact_person = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
+    member_since = serializers.DateTimeField(source='created_at', read_only=True)
+    linked_agents_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Distributor
         fields = ['id', 'user', 'company_name', 'warehouse_location', 'warehouse_gps_lat',
                   'warehouse_gps_lng', 'district', 'contact_phone', 'is_active', 'name',
-                  'distance_km', 'active_notices']
+                  'distance_km', 'active_notices', 'contact_person', 'email', 'member_since',
+                  'linked_agents_count']
         read_only_fields = ['id', 'user']
 
     def get_name(self, obj):
@@ -37,6 +42,15 @@ class DistributorSerializer(serializers.ModelSerializer):
 
     def get_distance_km(self, obj):
         return getattr(obj, 'distance_km', None)
+
+    def get_contact_person(self, obj):
+        return obj.user.get_full_name()
+
+    def get_email(self, obj):
+        return obj.user.email
+
+    def get_linked_agents_count(self, obj):
+        return obj.market_agent_links.filter(is_active=True).count()
 
     def get_active_notices(self, obj):
         from django.utils import timezone
@@ -48,6 +62,7 @@ class DistributorSerializer(serializers.ModelSerializer):
                 'id': n.id,
                 'crop_name': n.crop.name,
                 'available_quantity_kg': n.available_quantity_kg,
+                'price_per_kg': n.price_per_kg,
                 'collection_deadline': n.collection_deadline,
             }
             for n in notices
@@ -159,3 +174,12 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_distributor_name(self, obj):
         return str(obj.distributor)
+
+
+class DistributorWasteReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DistributorWasteReport
+        fields = ['id', 'distributor', 'reporting_period_start', 'reporting_period_end',
+                  'quantity_moved_kg', 'quantity_discarded_kg', 'discard_reason', 'discard_notes',
+                  'warehouse_spoilage_loss_pct', 'submitted_at']
+        read_only_fields = ['id', 'distributor', 'warehouse_spoilage_loss_pct', 'submitted_at']

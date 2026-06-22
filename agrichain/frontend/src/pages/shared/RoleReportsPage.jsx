@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Package, Layers, Truck, TrendingUp, ClipboardList,
   BarChart2, Trash2, CheckCircle, Globe, MapPin, Leaf,
-  Activity, Download, Loader, FileText,
+  Activity, Download, Loader, FileText, Users, Warehouse, Inbox,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -10,6 +10,15 @@ import { analyticsApi, triggerDownload } from '../../api/analytics.js'
 
 const CATALOG = {
   COOPERATIVE_MANAGER: [
+    {
+      type: 'complete',
+      name: 'Complete Activity Report',
+      desc: 'Every batch from dispatch through transport, distributor receipt, and market handover — the full traceability picture in one report.',
+      filename: 'cooperative_complete_report.csv',
+      icon: FileText,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
     {
       type: 'batches',
       name: 'Batch Dispatch Report',
@@ -41,6 +50,15 @@ const CATALOG = {
 
   TRANSPORTER: [
     {
+      type: 'complete',
+      name: 'Complete Activity Report',
+      desc: 'Every job — requester, vehicle, actual pickup/delivery times, transit hours, and incidents — in one report.',
+      filename: 'transporter_complete_report.csv',
+      icon: FileText,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
+    {
       type: 'jobs',
       name: 'Transport Jobs Report',
       desc: 'All transport jobs — routes, cargo, scheduled vs actual pickup and delivery times.',
@@ -62,6 +80,15 @@ const CATALOG = {
 
   DISTRIBUTOR: [
     {
+      type: 'complete',
+      name: 'Complete Activity Report',
+      desc: 'Every order — crop origin cooperative, market agent, delivery method, collection results, and status — in one report.',
+      filename: 'distributor_complete_report.csv',
+      icon: FileText,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
+    {
       type: 'orders',
       name: 'Orders Report',
       desc: 'All market agent orders — crop, quantities requested and confirmed, delivery method, and status.',
@@ -79,9 +106,27 @@ const CATALOG = {
       color: 'text-indigo-600',
       bg: 'bg-indigo-50',
     },
+    {
+      type: 'waste',
+      name: 'Warehouse Waste Report',
+      desc: 'Produce that spoiled or was discarded in your warehouse — quantities moved on, discarded, and loss percentage.',
+      filename: 'distributor_waste_report.csv',
+      icon: Trash2,
+      color: 'text-danger-600',
+      bg: 'bg-danger-50',
+    },
   ],
 
   MARKET_AGENT: [
+    {
+      type: 'complete',
+      name: 'Complete Activity Report',
+      desc: 'Every collection — crop, distributor, price, collected/arrived quantities, loss, and order status — in one report.',
+      filename: 'market_agent_complete_report.csv',
+      icon: FileText,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
     {
       type: 'collections',
       name: 'Collection Confirmations Report',
@@ -103,6 +148,15 @@ const CATALOG = {
   ],
 
   MINAGRI_OFFICER: [
+    {
+      type: 'complete',
+      name: 'Complete Activity Report',
+      desc: 'Every batch nationwide — cooperative, district, transport, distributor, and market agent in a single end-to-end report.',
+      filename: 'national_complete_report.csv',
+      icon: FileText,
+      color: 'text-violet-600',
+      bg: 'bg-violet-50',
+    },
     {
       type: 'national',
       name: 'National Supply Chain Report',
@@ -142,15 +196,60 @@ const CATALOG = {
   ],
 }
 
-CATALOG.ADMIN = CATALOG.MINAGRI_OFFICER
+CATALOG.TRANSPORT_COMPANY = CATALOG.TRANSPORTER
+
+CATALOG.ADMIN = [
+  ...CATALOG.MINAGRI_OFFICER,
+  {
+    type: 'users',
+    name: 'System Users Report',
+    desc: 'Every account in ChainSight — role, contact info, verification, and active status.',
+    filename: 'system_users_report.csv',
+    icon: Users,
+    color: 'text-gray-700',
+    bg: 'bg-gray-100',
+  },
+]
+
+CATALOG.WAREHOUSE_MANAGER = [
+  {
+    type: 'complete',
+    name: 'Complete Activity Report',
+    desc: 'Every rental request with full facility specs — capacity, IoT sensor, cold-chain thresholds — in one report.',
+    filename: 'warehouse_complete_report.csv',
+    icon: FileText,
+    color: 'text-violet-600',
+    bg: 'bg-violet-50',
+  },
+  {
+    type: 'facilities',
+    name: 'Warehouse Facilities Report',
+    desc: 'Every facility you manage — capacity, rental availability, and cold-chain thresholds.',
+    filename: 'warehouse_facilities_report.csv',
+    icon: Warehouse,
+    color: 'text-primary-600',
+    bg: 'bg-primary-50',
+  },
+  {
+    type: 'rentals',
+    name: 'Rental Requests Report',
+    desc: 'All rental requests from cooperatives — facility, requested capacity, and status.',
+    filename: 'warehouse_rentals_report.csv',
+    icon: Inbox,
+    color: 'text-indigo-600',
+    bg: 'bg-indigo-50',
+  },
+]
 
 const ROLE_LABELS = {
   COOPERATIVE_MANAGER: 'Cooperative Manager',
   TRANSPORTER: 'Transporter',
+  TRANSPORT_COMPANY: 'Transport Company',
   DISTRIBUTOR: 'Distributor',
   MARKET_AGENT: 'Market Agent',
   MINAGRI_OFFICER: 'MINAGRI Officer',
   ADMIN: 'Admin',
+  WAREHOUSE_MANAGER: 'Warehouse Manager',
 }
 
 export default function RoleReportsPage() {
@@ -186,7 +285,7 @@ export default function RoleReportsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          Download live CSV reports generated from your data in real time
+          Generated live from your current data — download as CSV for analysis, or PDF for a printable document.
         </p>
       </div>
 
@@ -242,15 +341,6 @@ export default function RoleReportsPage() {
           })}
         </div>
       )}
-
-      <div className="card bg-blue-50/40 border border-blue-100">
-        <p className="text-xs text-blue-700 leading-relaxed">
-          <span className="font-semibold">About these reports:</span> Each report is generated live from the current
-          database state — no pre-processing required. Choose CSV for further analysis in a spreadsheet, or PDF for
-          a printable, presentable document. Data reflects all activity recorded in ChainSight up to the moment you
-          click download.
-        </p>
-      </div>
     </div>
   )
 }

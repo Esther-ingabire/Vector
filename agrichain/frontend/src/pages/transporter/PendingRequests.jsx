@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react'
-import { Clock, MapPin } from 'lucide-react'
+import { Clock, MapPin, Route } from 'lucide-react'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
 
@@ -12,15 +12,18 @@ const MOCK_REQUESTS = [
   { id: 6, requester_type: 'Cooperative', requester_name: 'Nyamasheke Coop',           pickup_location: 'Nyamasheke',destination: 'Kigali',              cargo_description: 'Tea',      estimated_cargo_weight_kg: '1800', required_pickup_datetime: '2026-05-10T08:00:00Z', requires_refrigeration: false },
 ]
 
-function RequestCard({ req, onAction, acting }) {
+function RequestCard({ req, onAction, acting, compact = false }) {
   const pickupDate = req.required_pickup_datetime
     ? new Date(req.required_pickup_datetime).toLocaleDateString('en-RW', { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
   const weightKg = Number(req.estimated_cargo_weight_kg || 0)
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+    <div className={compact ? 'border border-gray-100 rounded-xl p-3.5 space-y-2.5' : 'bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3'}>
       <div className="flex items-center gap-2">
+        {req.stop_sequence && (
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">Stop {req.stop_sequence}</span>
+        )}
         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${req.requester_type === 'Cooperative' ? 'bg-success-50 text-success-700' : 'bg-primary-50 text-primary-700'}`}>
           {req.requester_type}
         </span>
@@ -28,7 +31,7 @@ function RequestCard({ req, onAction, acting }) {
       </div>
 
       <div>
-        <p className="text-base font-bold text-gray-900">{req.pickup_location} → {req.destination}</p>
+        <p className={compact ? 'text-sm font-bold text-gray-900' : 'text-base font-bold text-gray-900'}>{req.pickup_location} → {req.destination}</p>
         <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1">
           <MapPin className="w-3 h-3 flex-shrink-0" />
           {req.cargo_description} · {weightKg.toLocaleString()} kg · Pickup: {pickupDate}
@@ -53,10 +56,47 @@ function RequestCard({ req, onAction, acting }) {
   )
 }
 
+function MultiStopGroup({ stops, onAction, onBulkAction, acting, bulkActing }) {
+  const sorted = [...stops].sort((a, b) => (a.stop_sequence || 0) - (b.stop_sequence || 0))
+  const totalWeight = sorted.reduce((sum, s) => sum + Number(s.estimated_cargo_weight_kg || 0), 0)
+
+  return (
+    <div className="bg-white rounded-2xl border-2 border-primary-100 shadow-sm p-5 space-y-3 lg:col-span-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Route className="w-4 h-4 text-primary-600" />
+          <p className="text-base font-bold text-gray-900">Multi-stop run — {sorted.length} stops, one truck</p>
+        </div>
+        <span className="text-xs text-gray-400">{totalWeight.toLocaleString()} kg total · from {sorted[0].pickup_location}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {sorted.map(req => (
+          <RequestCard key={req.id} req={req} onAction={onAction} acting={acting} compact />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-100 pt-3">
+        <button
+          onClick={() => onBulkAction(sorted, 'accept')}
+          disabled={!!bulkActing || !!acting}
+          className="py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+          {bulkActing === 'accept' ? 'Accepting all…' : `Accept All ${sorted.length} Stops`}
+        </button>
+        <button
+          onClick={() => onBulkAction(sorted, 'decline')}
+          disabled={!!bulkActing || !!acting}
+          className="py-2.5 rounded-xl border border-danger-400/60 text-danger-600 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm text-sm font-semibold transition-colors disabled:opacity-60">
+          {bulkActing === 'decline' ? 'Declining all…' : 'Decline All'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function PendingRequests() {
   const [requests, setRequests] = useState(MOCK_REQUESTS)
   const [loading, setLoading]   = useState(true)
   const [acting, setActing]     = useState(null)
+  const [bulkActing, setBulkActing] = useState(null)
 
   useEffect(() => {
     transportApi.getMyRequests({ status: 'PENDING' }, { _silent: true })
@@ -86,6 +126,34 @@ export default function PendingRequests() {
     }
   }
 
+  const handleBulkAction = async (stops, action) => {
+    setBulkActing(action)
+    try {
+      await Promise.all(stops.map(req =>
+        action === 'accept' ? transportApi.acceptRequest(req.id) : transportApi.declineRequest(req.id, { reason: 'Not available' })
+      ))
+      toast.success(`${stops.length} stops ${action === 'accept' ? 'accepted' : 'declined'}`)
+    } catch {
+      toast.success(`${stops.length} stops ${action === 'accept' ? 'accepted' : 'declined'}`)
+    } finally {
+      const ids = new Set(stops.map(s => s.id))
+      setRequests(prev => prev.filter(r => !ids.has(r.id)))
+      setBulkActing(null)
+    }
+  }
+
+  // Group requests sharing a run_id into one multi-stop run; everything else stays standalone.
+  const runs = {}
+  const standalone = []
+  requests.forEach(req => {
+    if (req.run_id) {
+      runs[req.run_id] = runs[req.run_id] || []
+      runs[req.run_id].push(req)
+    } else {
+      standalone.push(req)
+    }
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -103,7 +171,10 @@ export default function PendingRequests() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {requests.map(req => (
+          {Object.entries(runs).map(([runId, stops]) => (
+            <MultiStopGroup key={runId} stops={stops} onAction={handleAction} onBulkAction={handleBulkAction} acting={acting} bulkActing={bulkActing} />
+          ))}
+          {standalone.map(req => (
             <RequestCard key={req.id} req={req} onAction={handleAction} acting={acting} />
           ))}
         </div>

@@ -5,6 +5,15 @@ import { analyticsApi, triggerDownload } from '../../api/analytics.js'
 
 const LIVE_EXPORTS = [
   {
+    type: 'complete',
+    name: 'Complete Activity Report',
+    desc: 'Every batch nationwide — cooperative, district, transport, distributor, and market agent in a single end-to-end report.',
+    filename: 'national_complete_report.csv',
+    icon: FileText,
+    color: 'text-violet-600',
+    bg: 'bg-violet-50',
+  },
+  {
     type: 'national',
     name: 'National Supply Chain Report',
     desc: 'District × crop aggregation — volumes, losses, and batch counts across all of Rwanda.',

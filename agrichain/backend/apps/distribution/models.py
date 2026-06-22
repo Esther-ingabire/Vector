@@ -180,3 +180,43 @@ class Order(models.Model):
 
     def __str__(self):
         return f"Order #{self.id} — {self.market_agent} from {self.distributor}"
+
+
+class DistributorWasteReport(models.Model):
+    """
+    End-of-period loss report submitted by a distributor for produce that spoiled or was
+    discarded while sitting in their own warehouse — the same idea as a Market Agent's
+    WasteReport, one stage earlier in the chain (cooperative → distributor → market).
+    """
+
+    class DiscardReason(models.TextChoices):
+        SPOILAGE  = 'SPOILAGE',  'Spoilage — natural deterioration'
+        NO_DEMAND = 'NO_DEMAND', 'No demand — not collected before spoilage'
+        DAMAGE    = 'DAMAGE',    'Physical/handling damage in warehouse'
+        OTHER     = 'OTHER',     'Other — see notes'
+
+    distributor             = models.ForeignKey(Distributor, on_delete=models.PROTECT, related_name='waste_reports')
+    reporting_period_start  = models.DateField()
+    reporting_period_end    = models.DateField()
+
+    quantity_moved_kg       = models.DecimalField(max_digits=10, decimal_places=2,
+                                                   help_text="Quantity sold on / collected by market agents during this period")
+    quantity_discarded_kg   = models.DecimalField(max_digits=10, decimal_places=2)
+    discard_reason          = models.CharField(max_length=20, choices=DiscardReason.choices)
+    discard_notes           = models.TextField(blank=True)
+
+    # Warehouse-level loss — calculated by the system: discard / (moved + discarded)
+    warehouse_spoilage_loss_pct = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+
+    def save(self, *args, **kwargs):
+        total = float(self.quantity_moved_kg) + float(self.quantity_discarded_kg)
+        self.warehouse_spoilage_loss_pct = round(float(self.quantity_discarded_kg) / total * 100, 2) if total > 0 else 0
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Waste report — {self.distributor} ({self.reporting_period_start} to {self.reporting_period_end})"

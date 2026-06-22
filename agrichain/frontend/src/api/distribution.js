@@ -27,6 +27,15 @@ export const distributionApi = {
   // Receipt confirmation
   confirmReceipt: (batchId, data) => apiClient.post(`/traceability/batches/${batchId}/confirm-receipt/`, data),
 
+  // Warehouse waste / loss reports
+  getMyWasteReports: (params) => apiClient.get('/distribution/waste-reports/', { params }),
+  submitWasteReport: (data) => apiClient.post('/distribution/waste-reports/', data),
+
+  // My Fleet — drivers the distributor owns and registers directly (no Transport Company in between)
+  registerOwnDriver: (data) => apiClient.post('/distribution/register-own-driver/', data),
+  getMyFleet: (config) => apiClient.get('/distribution/distributors/my-fleet/', config),
+  getFleetMonitoring: (config) => apiClient.get('/distribution/distributors/fleet-monitoring/', config),
+
   // Analytics
   getDeliveryMethodComparison: (params) => apiClient.get('/analytics/delivery-comparison/', { params }),
   getDistributionAnalytics: (params) => apiClient.get('/analytics/distribution/', { params }),

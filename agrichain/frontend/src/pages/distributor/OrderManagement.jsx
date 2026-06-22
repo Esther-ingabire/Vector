@@ -50,12 +50,6 @@ function getCropImage(crops = [], coopId = 0) {
   return FALLBACK_IMAGES[Math.abs(coopId) % FALLBACK_IMAGES.length]
 }
 
-// Cooperatives the distributor has worked with before (frequent partners)
-const MOCK_FREQUENT = [
-  { id: 1, name: 'Musanze Coffee Coop', district: 'Musanze', crops_specialised: ['Coffee', 'Maize'], stock_tons: 24.5, composite_score: 0.88, total_batches_dispatched: 14 },
-  { id: 2, name: 'Nyanza Potato Growers', district: 'Nyanza', crops_specialised: ['Potatoes', 'Beans'], stock_tons: 18.0, composite_score: 0.81, total_batches_dispatched: 9 },
-]
-
 // IDs used in mock data — API calls for these will always fail
 const MOCK_COOP_IDS = new Set([1, 2, 10, 11, 12, 13, 14])
 
@@ -109,7 +103,6 @@ export default function OrderManagement() {
   const [tab, setTab] = useState(initialTab)
   const [orders, setOrders] = useState([])
   const [notices, setNotices] = useState([])
-  const [frequentCoops] = useState(MOCK_FREQUENT)
   const [allCoops, setAllCoops] = useState([])
   const [loadingOrders, setLoadingOrders] = useState(true)
   const [loadingNotices, setLoadingNotices] = useState(true)
@@ -200,7 +193,11 @@ export default function OrderManagement() {
       cooperativesApi.getCooperativeDetail(coop.id).then(res => {
         const full = res.data
         const stockTons = (full.stock_records || []).reduce((sum, s) => sum + Number(s.quantity_kg || 0), 0) / 1000
-        setSelectedCoop(prev => (prev && prev.id === coop.id ? { ...prev, ...full, stock_tons: stockTons } : prev))
+        // The detail endpoint's crops_specialised is a list of Crop objects ({id, name, ...}),
+        // but the directory endpoint (used for the initial card data) returns plain strings —
+        // normalize to strings so the profile modal doesn't try to render an object as a child.
+        const cropsNames = (full.crops_specialised || []).map(c => typeof c === 'string' ? c : c.name)
+        setSelectedCoop(prev => (prev && prev.id === coop.id ? { ...prev, ...full, crops_specialised: cropsNames, stock_tons: stockTons } : prev))
       }).catch(() => {})
     }
   }
@@ -315,6 +312,12 @@ export default function OrderManagement() {
     )},
   ]
 
+  // Frequent = cooperatives you've actually ordered from before — real data, cross-referenced
+  // against the full directory so clicking one always has the same rich detail as any other.
+  const frequentCoops = allCoops
+    .filter(c => partnerIds.has(c.id))
+    .slice(0, 4)
+
   // Recommended = not yet partners, sorted by score
   const recommended = allCoops
     .filter(c => !partnerIds.has(c.id))
@@ -330,7 +333,7 @@ export default function OrderManagement() {
         </div>
         <div className="flex gap-2">
           {tab === 'requests' && (
-            <button onClick={() => { setSelectedCoop(null); setShowNew(true) }} className="btn-primary flex items-center gap-2">
+            <button onClick={() => { setSelectedCoop(null); setCoopStep('order'); setShowNew(true) }} className="btn-primary flex items-center gap-2">
               <Plus className="w-4 h-4" /> New Request
             </button>
           )}
@@ -387,18 +390,20 @@ export default function OrderManagement() {
       {tab === 'cooperatives' && (
         <div className="space-y-8">
           {/* Frequent Cooperatives (starred, card design) */}
-          <section>
-            <div className="flex items-center gap-2 mb-4">
-              <Star className="w-5 h-5 text-warning-400 fill-warning-400" />
-              <h2 className="text-base font-semibold text-gray-900">Frequent Cooperatives</h2>
-              <span className="text-xs text-gray-400">Partners you've worked with before</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {frequentCoops.map(coop => (
-                <CoopCard key={coop.id} coop={coop} onRequest={openRequest} isFrequent />
-              ))}
-            </div>
-          </section>
+          {frequentCoops.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="w-5 h-5 text-warning-400 fill-warning-400" />
+                <h2 className="text-base font-semibold text-gray-900">Frequent Cooperatives</h2>
+                <span className="text-xs text-gray-400">Partners you've worked with before</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {frequentCoops.map(coop => (
+                  <CoopCard key={coop.id} coop={coop} onRequest={openRequest} isFrequent />
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Recommended / Highly Rated */}
           {recommended.length > 0 && (
@@ -557,7 +562,7 @@ export default function OrderManagement() {
 
       {/* Cooperative profile → order modal */}
       <Modal isOpen={showNew} onClose={closeCoopModal}
-        title={coopStep === 'profile' ? 'Cooperative Profile' : `Order from ${selectedCoop?.name}`}>
+        title={coopStep === 'profile' ? 'Cooperative Profile' : selectedCoop ? `Order from ${selectedCoop.name}` : 'New Produce Request'}>
 
         {coopStep === 'profile' && selectedCoop && (() => {
           const imgSrc = selectedCoop.image_url || getCropImage(selectedCoop.crops_specialised, selectedCoop.id)
@@ -577,8 +582,35 @@ export default function OrderManagement() {
               {/* Name & location */}
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{selectedCoop.name}</h3>
-                <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5"><MapPin className="w-3.5 h-3.5" />{selectedCoop.district}</p>
+                <p className="text-sm text-gray-500 flex items-center gap-1 mt-0.5">
+                  <MapPin className="w-3.5 h-3.5" />{selectedCoop.district}{selectedCoop.sector ? `, ${selectedCoop.sector}` : ''}
+                </p>
+                {selectedCoop.registration_number && (
+                  <p className="text-xs text-gray-400 mt-0.5">Reg. No. {selectedCoop.registration_number}</p>
+                )}
               </div>
+
+              {selectedCoop.description && (
+                <p className="text-sm text-gray-600 leading-relaxed">{selectedCoop.description}</p>
+              )}
+
+              {/* Contact & management */}
+              {(selectedCoop.manager_name || selectedCoop.contact_phone || selectedCoop.contact_email) && (
+                <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 text-sm">
+                  {selectedCoop.manager_name && (
+                    <div className="flex justify-between"><span className="text-gray-500">Manager</span><span className="font-medium text-gray-900">{selectedCoop.manager_name}</span></div>
+                  )}
+                  {selectedCoop.contact_phone && (
+                    <div className="flex justify-between"><span className="text-gray-500">Phone</span><span className="font-medium text-gray-900">{selectedCoop.contact_phone}</span></div>
+                  )}
+                  {selectedCoop.contact_email && (
+                    <div className="flex justify-between"><span className="text-gray-500">Email</span><span className="font-medium text-gray-900">{selectedCoop.contact_email}</span></div>
+                  )}
+                  {selectedCoop.storage_facilities?.length > 0 && (
+                    <div className="flex justify-between"><span className="text-gray-500">Storage facilities</span><span className="font-medium text-gray-900">{selectedCoop.storage_facilities.length}</span></div>
+                  )}
+                </div>
+              )}
 
               {/* Crops */}
               <div className="flex flex-wrap gap-2">
@@ -588,6 +620,24 @@ export default function OrderManagement() {
                   </span>
                 ))}
               </div>
+
+              {/* Per-crop stock breakdown — a cooperative may carry several products at once */}
+              {selectedCoop.stock_records?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Available stock by crop</p>
+                  <div className="space-y-1.5">
+                    {selectedCoop.stock_records.filter(s => s.is_available).map(s => (
+                      <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
+                        <span className="font-medium text-gray-900">{s.crop_name || s.crop?.name || s.crop}</span>
+                        <span className="text-gray-600">{Number(s.quantity_kg).toLocaleString()} kg <span className="text-gray-400">· Grade {s.quality_grade}</span></span>
+                      </div>
+                    ))}
+                    {selectedCoop.stock_records.every(s => !s.is_available) && (
+                      <p className="text-xs text-gray-400">No stock currently marked available for requests.</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Performance stats */}
               <div className="grid grid-cols-3 gap-3">

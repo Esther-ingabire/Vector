@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport
 from .serializers import (
-    TransporterSerializer, VehicleSerializer,
+    TransporterSerializer, DriverSerializer, VehicleSerializer,
     TransportRequestSerializer, TripSerializer, TripListSerializer, GPSTrackSerializer,
     IncidentReportSerializer,
 )
@@ -28,7 +28,7 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             return Transporter.objects.filter(user=user)
         return Transporter.objects.filter(is_active=True)
 
@@ -40,6 +40,108 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
         except Transporter.DoesNotExist:
             return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
 
+    @action(detail=False, methods=['get'], url_path='my-drivers', permission_classes=[IsTransporter])
+    def my_drivers(self, request):
+        """
+        Drivers registered under this Transport Company account, with their vehicles
+        and whether each currently has an active trip. Only a company account (one with
+        no parent_company of its own) has drivers — an individual driver calling this
+        just gets an empty list, since they can't register sub-drivers of their own.
+        """
+        try:
+            company = request.user.transporter_profile
+        except Transporter.DoesNotExist:
+            return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        if company.parent_company_id is not None:
+            return Response(
+                {'detail': "This account is a driver, not a transport company — it doesn't manage sub-drivers."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        drivers = company.drivers.select_related('user').prefetch_related('vehicles', 'transport_requests')
+        return Response(DriverSerializer(drivers, many=True).data)
+
+    @action(detail=False, methods=['post'], url_path='register-driver', permission_classes=[IsTransporter])
+    def register_driver(self, request):
+        """Transport Company account registers a driver — no admin approval needed."""
+        import re
+        import secrets
+        import hashlib
+        from datetime import timedelta
+        from django.conf import settings
+        from django.core.mail import send_mail
+        from django.db import IntegrityError
+        from apps.authentication.models import User, OTPRecord
+        from apps.authentication.serializers import UserCreateSerializer
+
+        try:
+            company = request.user.transporter_profile
+        except Transporter.DoesNotExist:
+            return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        if company.parent_company_id is not None:
+            return Response(
+                {'detail': "This account is a driver, not a transport company — it can't register sub-drivers."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        phone = request.data.get('phone_number', '')
+        digits = re.sub(r'\D', '', phone)[-8:] or secrets.token_hex(4)
+        base_username = request.data.get('username') or f'driver.{digits}'
+        username = base_username
+        suffix = 1
+        while User.objects.filter(username=username).exists():
+            username = f'{base_username}.{suffix}'
+            suffix += 1
+
+        data = {**request.data, 'role': 'TRANSPORTER', 'username': username}
+        serializer = UserCreateSerializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = serializer.save()
+        except IntegrityError as e:
+            err = str(e)
+            if 'phone_number' in err:
+                return Response({'phone_number': ['A user with this phone number already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+            if 'email' in err:
+                return Response({'email': ['A user with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Could not create user — a duplicate entry exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        operating_districts = request.data.get('operating_districts', company.operating_districts or ['Kigali'])
+        if isinstance(operating_districts, str):
+            operating_districts = [d.strip() for d in operating_districts.split(',') if d.strip()]
+
+        Transporter.objects.create(
+            user=user,
+            # Deliberately left blank, not copied from the company: Transporter.__str__/name
+            # prefers company_name over the user's own name, so setting it here would make
+            # every driver under the same company display identically in lists. The company
+            # affiliation is already captured via parent_company.
+            operating_districts=operating_districts,
+            parent_company=company,
+            is_active=True,
+        )
+
+        otp_code = ''.join(secrets.choice('0123456789') for _ in range(6))
+        otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+        expires_at = timezone.now() + timedelta(hours=getattr(settings, 'OTP_EXPIRY_HOURS', 24))
+        OTPRecord.objects.create(
+            user=user, otp_code=otp_hash,
+            purpose=OTPRecord.Purpose.ACCOUNT_ACTIVATION, expires_at=expires_at,
+        )
+        if user.email:
+            send_mail(
+                'ChainSight — Activate Your Account',
+                f"Hello {user.get_full_name()},\n\nYou have been registered as a driver on ChainSight by {company}.\n\nYour verification code is: {otp_code}\n\nThis code expires in 24 hours.\n\nChainSight Supply Chain Analytics System",
+                settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True,
+            )
+
+        return Response({
+            'message': f'Driver {user.get_full_name()} registered. OTP sent to {user.email or user.phone_number}.',
+            'user_id': user.id,
+            'otp_code': otp_code,  # shown in dev so the company can manually share it
+        }, status=status.HTTP_201_CREATED)
+
 
 class VehicleViewSet(viewsets.ModelViewSet):
     serializer_class = VehicleSerializer
@@ -47,7 +149,7 @@ class VehicleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 return Vehicle.objects.filter(transporter=user.transporter_profile)
             except Transporter.DoesNotExist:
@@ -88,7 +190,7 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         status_filter = self.request.query_params.get('status')
 
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 qs = TransportRequest.objects.filter(transporter=user.transporter_profile)
             except Transporter.DoesNotExist:
@@ -141,6 +243,55 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         req.save()
         return Response(TransportRequestSerializer(req).data)
 
+    @action(detail=False, methods=['post'], url_path='create-multi-stop')
+    def create_multi_stop(self, request):
+        """
+        Create several TransportRequests that share one pickup and one transporter — a single
+        multi-stop run (e.g. one truck dropping different crops at several distributors).
+        Each stop still gets its own independent status/Trip/delivery confirmation; only the
+        pickup, transporter, and pickup time are shared across the run.
+        Body: { transporter, leg_number, pickup_location, pickup_gps_lat, pickup_gps_lng,
+                requires_refrigeration, required_pickup_datetime,
+                stops: [{ destination, destination_gps_lat, destination_gps_lng,
+                          cargo_description, estimated_cargo_weight_kg, notes }, ...] }
+        """
+        import uuid
+        user = self.request.user
+        stops = request.data.get('stops') or []
+        if len(stops) < 1:
+            return Response({'detail': 'Add at least one stop.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        shared = {k: v for k, v in request.data.items() if k != 'stops'}
+        run_id = uuid.uuid4()
+        created = []
+        for i, stop in enumerate(stops, start=1):
+            payload = {**shared, **stop, 'run_id': str(run_id), 'stop_sequence': i}
+            serializer = TransportRequestSerializer(data=payload)
+            if not serializer.is_valid():
+                return Response({'stop': i, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            if user.role == 'COOPERATIVE_MANAGER':
+                try:
+                    req = serializer.save(requested_by_cooperative=user.cooperative)
+                except Exception:
+                    req = serializer.save()
+            elif user.role == 'DISTRIBUTOR':
+                try:
+                    req = serializer.save(requested_by_distributor=user.distributor_profile)
+                except Exception:
+                    req = serializer.save()
+            else:
+                req = serializer.save()
+            created.append(req)
+
+        notify(
+            created[0].transporter.user,
+            Notification.NotificationType.TRANSPORT_REQUEST_RECEIVED,
+            'New Multi-Stop Transport Request',
+            f'New multi-stop run requested from {created[0].pickup_location} — {len(created)} stops.',
+            related_object_type='transport_request', related_object_id=created[0].id,
+        )
+        return Response(TransportRequestSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
 
 class TripViewSet(viewsets.ModelViewSet):
     serializer_class = TripSerializer
@@ -154,7 +305,7 @@ class TripViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = Trip.objects.select_related('transport_request')
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 return qs.filter(transport_request__transporter=user.transporter_profile)
             except Transporter.DoesNotExist:
@@ -163,7 +314,7 @@ class TripViewSet(viewsets.ModelViewSet):
             return qs.all()
         return Trip.objects.none()
 
-    @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
+    @action(detail=True, methods=['post'], permission_classes=[IsTransporter], url_path='confirm-pickup')
     def confirm_pickup(self, request, pk=None):
         trip = self.get_object()
         trip.actual_pickup_datetime = timezone.now()
@@ -182,7 +333,7 @@ class TripViewSet(viewsets.ModelViewSet):
             )
         return Response(TripSerializer(trip).data)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
+    @action(detail=True, methods=['post'], permission_classes=[IsTransporter], url_path='confirm-delivery')
     def confirm_delivery(self, request, pk=None):
         trip = self.get_object()
         trip.actual_delivery_datetime = timezone.now()
@@ -212,12 +363,17 @@ class TripViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], permission_classes=[IsTransporter])
     def active(self, request):
-        """Return the current in-progress trip with full request context."""
+        """
+        Return all of this transporter's currently active trips, as a list — always an array,
+        even when there's just one (the common case). Trips sharing a `run_id` are stops on the
+        same multi-stop run; the frontend groups them by `run_id` to show one combined view
+        instead of separate unrelated trips.
+        """
         try:
             t = request.user.transporter_profile
         except Exception:
             return Response({'detail': 'No transporter profile.'}, status=status.HTTP_404_NOT_FOUND)
-        trip = Trip.objects.select_related(
+        trips = Trip.objects.select_related(
             'transport_request__requested_by_cooperative',
             'transport_request__requested_by_distributor',
             'transport_request__vehicle',
@@ -227,29 +383,54 @@ class TripViewSet(viewsets.ModelViewSet):
                 TransportRequest.Status.ACCEPTED,
                 TransportRequest.Status.IN_PROGRESS,
             ],
-        ).order_by('-created_at').first()
-        if not trip:
+        ).order_by('transport_request__run_id', 'transport_request__stop_sequence', '-created_at')
+        if not trips:
             return Response({'detail': 'No active trip.'}, status=status.HTTP_404_NOT_FOUND)
-        data = TripSerializer(trip).data
-        req = trip.transport_request
-        data['request'] = {
-            'id': req.id,
-            'pickup_location': req.pickup_location,
-            'pickup_gps_lat': str(req.pickup_gps_lat) if req.pickup_gps_lat else None,
-            'pickup_gps_lng': str(req.pickup_gps_lng) if req.pickup_gps_lng else None,
-            'destination': req.destination,
-            'destination_gps_lat': str(req.destination_gps_lat) if req.destination_gps_lat else None,
-            'destination_gps_lng': str(req.destination_gps_lng) if req.destination_gps_lng else None,
-            'cargo_description': req.cargo_description,
-            'estimated_cargo_weight_kg': str(req.estimated_cargo_weight_kg),
-            'requires_refrigeration': req.requires_refrigeration,
-            'required_pickup_datetime': req.required_pickup_datetime,
-            'requester_type': 'Cooperative' if req.requested_by_cooperative_id else 'Distributor',
-            'requester_name': req.requested_by_cooperative.name if req.requested_by_cooperative else str(req.requested_by_distributor or '—'),
-            'leg_number': req.leg_number,
-            'status': req.status,
-        }
-        return Response(data)
+        results = []
+        for trip in trips:
+            data = TripSerializer(trip).data
+            req = trip.transport_request
+            data['request'] = {
+                'id': req.id,
+                'pickup_location': req.pickup_location,
+                'pickup_gps_lat': str(req.pickup_gps_lat) if req.pickup_gps_lat else None,
+                'pickup_gps_lng': str(req.pickup_gps_lng) if req.pickup_gps_lng else None,
+                'destination': req.destination,
+                'destination_gps_lat': str(req.destination_gps_lat) if req.destination_gps_lat else None,
+                'destination_gps_lng': str(req.destination_gps_lng) if req.destination_gps_lng else None,
+                'cargo_description': req.cargo_description,
+                'estimated_cargo_weight_kg': str(req.estimated_cargo_weight_kg),
+                'requires_refrigeration': req.requires_refrigeration,
+                'required_pickup_datetime': req.required_pickup_datetime,
+                'requester_type': 'Cooperative' if req.requested_by_cooperative_id else 'Distributor',
+                'requester_name': req.requested_by_cooperative.name if req.requested_by_cooperative else str(req.requested_by_distributor or '—'),
+                'leg_number': req.leg_number,
+                'status': req.status,
+                'run_id': str(req.run_id) if req.run_id else None,
+                'stop_sequence': req.stop_sequence,
+            }
+            results.append(data)
+        return Response(results)
+
+    @action(detail=False, methods=['get'], permission_classes=[IsTransporter], url_path='fleet-monitoring')
+    def fleet_monitoring(self, request):
+        """
+        Vehicle IoT temperature readings + incident status across this transporter's own
+        active trips — or, for a Transport Company account, across all its drivers' active
+        trips too. Lets a transporter/company keep an eye on cold-chain compliance without
+        digging into each individual trip.
+        """
+        from .services import fleet_monitoring_rows
+        try:
+            t = request.user.transporter_profile
+        except Exception:
+            return Response({'detail': 'No transporter profile.'}, status=status.HTTP_404_NOT_FOUND)
+
+        transporter_ids = [t.id]
+        if t.parent_company_id is None:
+            transporter_ids += list(t.drivers.values_list('id', flat=True))
+
+        return Response(fleet_monitoring_rows(transporter_ids))
 
 
 class GPSTrackViewSet(viewsets.ModelViewSet):
@@ -271,7 +452,7 @@ class IncidentReportViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'TRANSPORTER':
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
                 return IncidentReport.objects.filter(
                     trip__transport_request__transporter=user.transporter_profile
@@ -297,12 +478,22 @@ class IncidentReportViewSet(viewsets.ModelViewSet):
         return IncidentReport.objects.none()
 
     def perform_create(self, serializer):
+        from django.db.models import Q
+        from apps.traceability.models import Batch
+
         incident = serializer.save()
         req = incident.trip.transport_request
+        # Link the alert straight to the batch riding on this trip — the cooperative/distributor
+        # already has a page for batch detail (Traceability); point at that instead of inventing
+        # a new "incident" page just to view what's essentially the same trip information.
+        batch = Batch.objects.filter(
+            Q(transport_request_leg1=req) | Q(transport_request_leg2=req)
+        ).first()
         notify(
             _requester_user(req),
             Notification.NotificationType.INCIDENT_REPORTED,
             f'Transporter Reported: {incident.get_incident_type_display()}',
             f'{req.transporter} reported "{incident.get_incident_type_display()}" on the trip to {req.destination}. {incident.description}'.strip(),
-            related_object_type='incident_report', related_object_id=incident.id,
+            related_object_type='batch' if batch else 'incident_report',
+            related_object_id=batch.id if batch else incident.id,
         )

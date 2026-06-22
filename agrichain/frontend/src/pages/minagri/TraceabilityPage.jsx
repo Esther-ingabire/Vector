@@ -3,8 +3,6 @@ import { Search, Users, Truck, Building2, MapPin, AlertTriangle, CheckCircle, Cl
 import { traceabilityApi } from '../../api/traceability.js'
 import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
 
-const TRANSIT_STATUSES = ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2']
-
 const STATUS_BADGE = {
   AT_COOPERATIVE:   'bg-yellow-100 text-yellow-700',
   IN_TRANSIT_LEG1:  'bg-blue-100 text-blue-700',
@@ -129,9 +127,9 @@ export default function TraceabilityPage() {
 
   useEffect(() => {
     setIotData(null)
-    if (!detail || !TRANSIT_STATUSES.includes(detail.current_status)) return
+    if (!detail) return
     traceabilityApi.getBatchIoT(detail.id).then(res => setIotData(res.data)).catch(() => {})
-  }, [detail?.id, detail?.current_status])
+  }, [detail?.id])
 
   const handleSearch = async () => {
     setSearching(true)
@@ -235,12 +233,12 @@ export default function TraceabilityPage() {
             </div>
           ) : (
             <>
-            {detail && TRANSIT_STATUSES.includes(detail.current_status) && (
+            {detail && iotData?.route && (
               <div className="mb-6">
                 <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4" /> Live Location
+                  <MapPin className="w-4 h-4" /> {iotData.is_live ? 'Live Location' : 'Delivery Route'}
                 </p>
-                <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} height={280} />
+                <TripTrackingMap route={iotData.route} gpsTracks={iotData.is_live ? iotData.gps_tracks : []} height={420} />
               </div>
             )}
             <div className="relative pl-10">

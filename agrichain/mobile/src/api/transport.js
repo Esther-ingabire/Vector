@@ -13,10 +13,10 @@ export const getMyActiveTrip = () =>
   client.get('/transport/trips/active/');
 
 export const confirmDelivery = (tripId, data) =>
-  client.post(`/transport/trips/${tripId}/confirm_delivery/`, data);
+  client.post(`/transport/trips/${tripId}/confirm-delivery/`, data);
 
 export const confirmPickup = (tripId) =>
-  client.post(`/transport/trips/${tripId}/confirm_pickup/`);
+  client.post(`/transport/trips/${tripId}/confirm-pickup/`);
 
 export const getMyTripHistory = (params) =>
   client.get('/transport/trips/', { params });

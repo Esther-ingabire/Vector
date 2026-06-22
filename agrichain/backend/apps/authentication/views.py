@@ -59,7 +59,7 @@ def create_role_profile(user, access_request):
                 is_active=True,
             )
 
-    elif role == 'TRANSPORTER':
+    elif role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
         from apps.transport.models import Transporter
         if not hasattr(user, 'transporter_profile'):
             Transporter.objects.create(
@@ -316,11 +316,23 @@ def me(request):
 @api_view(["POST"])
 @permission_classes([IsAdminRole])
 def create_user_directly(request):
-    """Admin creates a user directly without a registration request (e.g. MINAGRI Officer)."""
+    """Admin creates a user directly without a registration request."""
     serializer = UserCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     user = serializer.save()
+
+    # Roles other than MINAGRI_OFFICER/ADMIN need a role-specific profile row (Cooperative,
+    # Transporter, Distributor, MarketAgent, WarehouseManager) before they can use any
+    # role feature — reuse the same helper the access-request approval flow uses, fed from
+    # this request's own fields since there's no AccessRequest object here.
+    from types import SimpleNamespace
+    create_role_profile(user, SimpleNamespace(
+        organization_name=request.data.get('organization_name', ''),
+        district=request.data.get('district', ''),
+        phone_number=request.data.get('phone_number', ''),
+    ))
+
     otp_code, _ = create_otp_record(user, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
     send_otp_email(user, otp_code, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
     log_action(request.user, AuditLog.Action.ACCOUNT_CREATED,

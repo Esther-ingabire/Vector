@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ShoppingBag, RefreshCw, Package, Truck, Clock } from 'lucide-react'
+import { ShoppingBag, RefreshCw, Package, Truck, Clock, Plus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { marketAgentApi } from '../../api/marketAgent.js'
 import toast from 'react-hot-toast'
 
@@ -41,6 +42,7 @@ const PILL_ACTIVE   = { ALL: 'bg-gray-800 text-white', PENDING: 'bg-amber-500 te
 const PILL_INACTIVE = 'bg-gray-100 text-gray-600 hover:bg-gray-200'
 
 export default function OrdersPage() {
+  const navigate = useNavigate()
   const [orders, setOrders] = useState(MOCK_ORDERS)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('ALL')
@@ -75,9 +77,14 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-bold text-gray-900">My Orders</h1>
           <p className="text-sm text-gray-500 mt-0.5">Orders you've placed against distributor stock listings.</p>
         </div>
-        <button onClick={load} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 border border-gray-200">
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => navigate('/market-agent/stock')} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Place Order
+          </button>
+          <button onClick={load} className="p-2 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-100 border border-gray-200">
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Pending info banner */}

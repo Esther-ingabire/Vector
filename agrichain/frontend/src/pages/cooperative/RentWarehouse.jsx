@@ -92,6 +92,7 @@ export default function RentWarehouse() {
         <MapboxMap
           height={480}
           fitToMarkers
+          showSearch
           markers={facilities
             .filter(f => f.gps_latitude != null && f.gps_longitude != null)
             .map(f => ({

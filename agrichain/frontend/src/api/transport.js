@@ -6,6 +6,7 @@ export const transportApi = {
   acceptRequest: (id) => apiClient.post(`/transport/requests/${id}/accept/`),
   declineRequest: (id, data) => apiClient.post(`/transport/requests/${id}/decline/`, data),
   createRequest: (data) => apiClient.post('/transport/requests/', data),
+  createMultiStopRequest: (data) => apiClient.post('/transport/requests/create-multi-stop/', data),
 
   // Trips
   getMyActiveTrip: (config) => apiClient.get('/transport/trips/active/', config),
@@ -23,4 +24,13 @@ export const transportApi = {
 
   // Transporter directory (for cooperatives and distributors)
   searchTransporters: (params) => apiClient.get('/transport/directory/', { params }),
+
+  // Transport Company → Driver sub-accounts
+  getMyDrivers: (config) => apiClient.get('/transport/transporters/my-drivers/', config),
+  registerDriver: (data) => apiClient.post('/transport/transporters/register-driver/', data),
+
+  // Fleet IoT monitoring + incident alerts
+  getFleetMonitoring: (config) => apiClient.get('/transport/trips/fleet-monitoring/', config),
+  reportIncident: (data) => apiClient.post('/transport/incidents/', data),
+  getMyIncidents: (params, config) => apiClient.get('/transport/incidents/', { params, ...config }),
 }

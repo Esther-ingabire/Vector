@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, MapPin, Building2, CheckCircle, Clock, Plus, RefreshCw, Navigation, Phone, Package, X, List, Map as MapIcon } from 'lucide-react'
+import { Search, MapPin, Building2, CheckCircle, Clock, Plus, RefreshCw, Navigation, Package, X, List, Map as MapIcon } from 'lucide-react'
 import { marketAgentApi } from '../../api/marketAgent.js'
 import MapboxMap from '../../components/map/MapboxMap.jsx'
 import toast from 'react-hot-toast'
@@ -137,6 +137,7 @@ export default function FindDistributorsPage() {
         <MapboxMap
           height={480}
           fitToMarkers
+          showSearch
           markers={filtered
             .filter(d => d.warehouse_gps_lat != null && d.warehouse_gps_lng != null)
             .map(d => ({
@@ -222,17 +223,33 @@ export default function FindDistributorsPage() {
               </button>
             </div>
 
-            <div className="space-y-2 text-sm">
-              {profileDist.warehouse_location && (
-                <p className="flex items-center gap-2 text-gray-600"><MapPin className="w-4 h-4 text-gray-400" /> {profileDist.warehouse_location}</p>
+            <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 text-sm">
+              {profileDist.contact_person && (
+                <div className="flex justify-between"><span className="text-gray-500">Contact person</span><span className="font-medium text-gray-900">{profileDist.contact_person}</span></div>
               )}
               {profileDist.contact_phone && (
-                <p className="flex items-center gap-2 text-gray-600"><Phone className="w-4 h-4 text-gray-400" /> {profileDist.contact_phone}</p>
+                <div className="flex justify-between"><span className="text-gray-500">Phone</span><span className="font-medium text-gray-900">{profileDist.contact_phone}</span></div>
+              )}
+              {profileDist.email && (
+                <div className="flex justify-between"><span className="text-gray-500">Email</span><span className="font-medium text-gray-900">{profileDist.email}</span></div>
+              )}
+              {profileDist.warehouse_location && (
+                <div className="flex justify-between"><span className="text-gray-500">Warehouse</span><span className="font-medium text-gray-900">{profileDist.warehouse_location}</span></div>
+              )}
+              {profileDist.member_since && (
+                <div className="flex justify-between"><span className="text-gray-500">Partner since</span><span className="font-medium text-gray-900">{new Date(profileDist.member_since).toLocaleDateString('en-GB', { year: 'numeric', month: 'short' })}</span></div>
               )}
               {profileDist.distance_km != null && (
-                <p className="flex items-center gap-2 text-gray-600"><Navigation className="w-4 h-4 text-gray-400" /> {profileDist.distance_km} km from your stall</p>
+                <div className="flex justify-between"><span className="text-gray-500">Distance</span><span className="font-medium text-gray-900">{profileDist.distance_km} km from your stall</span></div>
               )}
             </div>
+
+            {profileDist.linked_agents_count != null && (
+              <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5 text-success-500" />
+                Already supplying {profileDist.linked_agents_count} market agent{profileDist.linked_agents_count === 1 ? '' : 's'}
+              </p>
+            )}
 
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -245,7 +262,12 @@ export default function FindDistributorsPage() {
                   {profileDist.active_notices.map(n => (
                     <div key={n.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm">
                       <span className="font-medium text-gray-800">{n.crop_name}</span>
-                      <span className="text-gray-500">{Number(n.available_quantity_kg).toLocaleString()} kg</span>
+                      <div className="text-right">
+                        <span className="text-gray-500">{Number(n.available_quantity_kg).toLocaleString()} kg</span>
+                        {n.price_per_kg != null && (
+                          <span className="text-success-600 font-medium ml-2">RWF {Number(n.price_per_kg).toLocaleString()}/kg</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

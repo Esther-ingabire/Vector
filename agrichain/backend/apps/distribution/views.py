@@ -1,12 +1,12 @@
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Distributor, DistributorMarketAgentLink, ProduceRequest, SupplyAgreement, CollectionNotice, Order
+from .models import Distributor, DistributorMarketAgentLink, ProduceRequest, SupplyAgreement, CollectionNotice, Order, DistributorWasteReport
 from .serializers import (
     DistributorSerializer, ProduceRequestSerializer, SupplyAgreementSerializer,
-    CollectionNoticeSerializer, OrderSerializer,
+    CollectionNoticeSerializer, OrderSerializer, DistributorWasteReportSerializer,
 )
 from apps.authentication.permissions import IsDistributor, IsCooperativeManager, IsMarketAgent
 from apps.notifications.models import Notification
@@ -62,6 +62,36 @@ class DistributorViewSet(viewsets.ReadOnlyModelViewSet):
             origin_lat, origin_lng, 'warehouse_gps_lat', 'warehouse_gps_lng', limit=50,
         )
         return Response(DistributorSerializer(results, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='my-fleet', permission_classes=[IsDistributor])
+    def my_fleet(self, request):
+        """Drivers this distributor registered directly — it owns the vehicle, not an
+        external Transport Company."""
+        try:
+            dist = request.user.distributor_profile
+        except Exception:
+            return Response({'detail': 'No distributor profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.transport.models import Transporter
+        from apps.transport.serializers import DriverSerializer
+        drivers = Transporter.objects.filter(
+            registered_by_distributor=dist, parent_company__isnull=True, user__role='TRANSPORTER',
+        ).select_related('user').prefetch_related('vehicles', 'transport_requests')
+        return Response(DriverSerializer(drivers, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='fleet-monitoring', permission_classes=[IsDistributor])
+    def fleet_monitoring(self, request):
+        """Vehicle IoT readings + incident status across active trips of drivers this
+        distributor owns directly (same shape as the Transport Company's own fleet-monitoring)."""
+        try:
+            dist = request.user.distributor_profile
+        except Exception:
+            return Response({'detail': 'No distributor profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        from apps.transport.models import Transporter
+        from apps.transport.services import fleet_monitoring_rows
+        transporter_ids = list(Transporter.objects.filter(
+            registered_by_distributor=dist, parent_company__isnull=True, user__role='TRANSPORTER',
+        ).values_list('id', flat=True))
+        return Response(fleet_monitoring_rows(transporter_ids))
 
 
 class ProduceRequestViewSet(viewsets.ModelViewSet):
@@ -400,3 +430,99 @@ class MarketAgentUnlinkView(APIView):
         link.is_active = False
         link.save()
         return Response({'detail': 'Unlinked.'})
+
+
+class DistributorWasteReportViewSet(viewsets.ModelViewSet):
+    serializer_class = DistributorWasteReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'DISTRIBUTOR':
+            try:
+                return DistributorWasteReport.objects.filter(distributor=user.distributor_profile)
+            except Distributor.DoesNotExist:
+                return DistributorWasteReport.objects.none()
+        if user.role in ('ADMIN', 'MINAGRI_OFFICER'):
+            return DistributorWasteReport.objects.all()
+        return DistributorWasteReport.objects.none()
+
+    def perform_create(self, serializer):
+        serializer.save(distributor=self.request.user.distributor_profile)
+
+
+@api_view(['POST'])
+@permission_classes([IsDistributor])
+def register_own_driver(request):
+    """
+    A distributor that owns its own vehicles registers a driver directly — not an external
+    Transport Company, just an employee driving the distributor's own truck. Mirrors the
+    cooperative's `register_own_driver` (apps/cooperatives/views.py) exactly, scoped to
+    `registered_by_distributor` instead of `registered_by_cooperative`.
+    """
+    import re, secrets, hashlib
+    from datetime import timedelta
+    from django.utils import timezone as tz
+    from django.conf import settings
+    from django.core.mail import send_mail
+    from django.db import IntegrityError
+    from apps.authentication.models import User, OTPRecord
+    from apps.authentication.serializers import UserCreateSerializer
+    from apps.transport.models import Transporter
+
+    dist = _get_or_create_distributor(request.user)
+
+    phone = request.data.get('phone_number', '')
+    digits = re.sub(r'\D', '', phone)[-8:] or secrets.token_hex(4)
+    base_username = request.data.get('username') or f'driver.{digits}'
+    username = base_username
+    suffix = 1
+    while User.objects.filter(username=username).exists():
+        username = f'{base_username}.{suffix}'
+        suffix += 1
+
+    data = {**request.data, 'role': 'TRANSPORTER', 'username': username}
+    serializer = UserCreateSerializer(data=data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = serializer.save()
+    except IntegrityError as e:
+        err = str(e)
+        if 'phone_number' in err:
+            return Response({'phone_number': ['A user with this phone number already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        if 'email' in err:
+            return Response({'email': ['A user with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'detail': 'Could not create user — a duplicate entry exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    operating_districts = request.data.get('operating_districts', [dist.district] if dist.district else ['Kigali'])
+    if isinstance(operating_districts, str):
+        operating_districts = [d.strip() for d in operating_districts.split(',') if d.strip()]
+
+    Transporter.objects.create(
+        user=user,
+        operating_districts=operating_districts,
+        registered_by_distributor=dist,
+        is_active=True,
+    )
+
+    otp_code = ''.join(secrets.choice('0123456789') for _ in range(6))
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    expires_at = tz.now() + timedelta(hours=getattr(settings, 'OTP_EXPIRY_HOURS', 24))
+    OTPRecord.objects.create(
+        user=user, otp_code=otp_hash,
+        purpose=OTPRecord.Purpose.ACCOUNT_ACTIVATION, expires_at=expires_at,
+    )
+    if user.email:
+        send_mail(
+            'ChainSight — Activate Your Account',
+            f"Hello {user.get_full_name()},\n\nYou have been registered as a driver on ChainSight by {dist.company_name or dist}.\n\nYour verification code is: {otp_code}\n\nThis code expires in 24 hours.\n\nChainSight Supply Chain Analytics System",
+            settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=True,
+        )
+
+    return Response({
+        'message': f'Driver {user.get_full_name()} registered. OTP sent to {user.email or user.phone_number}.',
+        'user_id': user.id,
+        'otp_code': otp_code,  # shown in dev so the distributor can manually share it
+    }, status=status.HTTP_201_CREATED)

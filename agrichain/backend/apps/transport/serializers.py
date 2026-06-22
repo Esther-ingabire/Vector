@@ -18,11 +18,22 @@ class TransporterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transporter
         fields = ['id', 'user', 'company_name', 'operating_districts', 'is_active',
-                  'vehicles', 'name', 'phone_number']
+                  'vehicles', 'name', 'phone_number', 'parent_company']
         read_only_fields = ['id', 'user']
 
     def get_name(self, obj):
         return str(obj)
+
+
+class DriverSerializer(TransporterSerializer):
+    """A Transporter that is a driver registered under a Transport Company account."""
+    has_active_trip = serializers.SerializerMethodField()
+
+    class Meta(TransporterSerializer.Meta):
+        fields = TransporterSerializer.Meta.fields + ['has_active_trip']
+
+    def get_has_active_trip(self, obj):
+        return obj.transport_requests.filter(status__in=['ACCEPTED', 'IN_PROGRESS']).exists()
 
 
 class IncidentReportSerializer(serializers.ModelSerializer):
@@ -93,6 +104,7 @@ class TransportRequestSerializer(serializers.ModelSerializer):
                   'cargo_description', 'estimated_cargo_weight_kg',
                   'requires_refrigeration', 'required_pickup_datetime',
                   'status', 'decline_reason', 'accepted_at', 'notes',
+                  'run_id', 'stop_sequence',
                   'created_at', 'updated_at', 'trip']
         read_only_fields = ['id', 'accepted_at', 'created_at', 'updated_at']
 

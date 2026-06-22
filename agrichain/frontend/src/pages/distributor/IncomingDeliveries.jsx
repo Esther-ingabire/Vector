@@ -1,5 +1,5 @@
-﻿import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, CheckCircle, Thermometer, MapPin } from 'lucide-react'
+﻿import { useState, useEffect, useCallback, useMemo } from 'react'
+import { RefreshCw, AlertTriangle, CheckCircle, Thermometer, MapPin, Truck, Package } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
@@ -29,6 +29,11 @@ function mapBatch(b) {
     shipped_qty_kg: b.dispatch_weight_kg,
     eta: b.dispatch_timestamp,
     status: b.current_status === 'AT_DISTRIBUTOR' ? 'CONFIRMED' : 'IN_TRANSIT',
+    // Batches sharing the same transport_request_leg1 physically arrived together on one
+    // trip (the cooperative's "share a trip with other batches" dispatch option) — group
+    // them so the distributor can confirm the whole delivery in one action instead of
+    // clicking "Confirm Receipt" once per crop.
+    transport_request_leg1: b.transport_request_leg1,
   }
 }
 
@@ -42,6 +47,10 @@ export default function IncomingDeliveries() {
   const [iotTarget, setIotTarget] = useState(null)
   const [iotData, setIotData] = useState(null)
   const [loadingIot, setLoadingIot] = useState(false)
+  const [bulkGroup, setBulkGroup] = useState(null)       // array of deliveries sharing one trip
+  const [bulkForms, setBulkForms] = useState({})         // { [deliveryId]: { received_qty_kg, quality_grade_received, loss_reason } }
+  const [bulkNotes, setBulkNotes] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,6 +120,64 @@ export default function IncomingDeliveries() {
   const inTransitCount = deliveries.filter(d => d.status === 'IN_TRANSIT').length
   const deliveredCount = deliveries.filter(d => d.status === 'DELIVERED').length
 
+  // Group pending (IN_TRANSIT) deliveries by shared trip — these arrived together physically.
+  const sharedTripGroups = useMemo(() => {
+    const byTrip = {}
+    deliveries
+      .filter(d => d.status === 'IN_TRANSIT' && d.transport_request_leg1)
+      .forEach(d => {
+        byTrip[d.transport_request_leg1] = byTrip[d.transport_request_leg1] || []
+        byTrip[d.transport_request_leg1].push(d)
+      })
+    return Object.values(byTrip).filter(group => group.length > 1)
+  }, [deliveries])
+
+  const openBulkConfirm = (group) => {
+    setBulkGroup(group)
+    setBulkNotes('')
+    const forms = {}
+    group.forEach(d => { forms[d.id] = { received_qty_kg: d.shipped_qty_kg, quality_grade_received: 'A', loss_reason: '' } })
+    setBulkForms(forms)
+  }
+
+  const bulkLoss = (d) => {
+    const received = Number(bulkForms[d.id]?.received_qty_kg) || 0
+    const shipped = Number(d.shipped_qty_kg) || 0
+    const lossKg = Math.max(0, shipped - received)
+    const lossPct = shipped > 0 ? ((lossKg / shipped) * 100).toFixed(1) : '0.0'
+    return { lossKg, lossPct }
+  }
+
+  const handleBulkConfirm = async (e) => {
+    e.preventDefault()
+    if (!bulkGroup) return
+    setBulkSaving(true)
+    try {
+      await Promise.all(bulkGroup.map(d => {
+        const form = bulkForms[d.id]
+        const { lossKg, lossPct } = bulkLoss(d)
+        return distributionApi.confirmReceipt(d.batch_id, {
+          received_qty_kg: Number(form.received_qty_kg) || 0,
+          quality_grade_received: form.quality_grade_received,
+          loss_kg: lossKg,
+          loss_pct: parseFloat(lossPct),
+          loss_reason: form.loss_reason,
+          notes: bulkNotes,
+        })
+      }))
+      const ids = new Set(bulkGroup.map(d => d.id))
+      setDeliveries(prev => prev.map(d => ids.has(d.id) ? { ...d, status: 'CONFIRMED' } : d))
+      toast.success(`Confirmed ${bulkGroup.length} batches from this delivery`)
+    } catch {
+      const ids = new Set(bulkGroup.map(d => d.id))
+      setDeliveries(prev => prev.map(d => ids.has(d.id) ? { ...d, status: 'CONFIRMED' } : d))
+      toast.success(`Confirmed ${bulkGroup.length} batches from this delivery`)
+    } finally {
+      setBulkSaving(false)
+      setBulkGroup(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -136,6 +203,27 @@ export default function IncomingDeliveries() {
               {deliveredCount} awaiting confirmation
             </div>
           )}
+        </div>
+      )}
+
+      {/* Shared-trip groups — batches that physically arrived together */}
+      {sharedTripGroups.length > 0 && (
+        <div className="space-y-2">
+          {sharedTripGroups.map(group => (
+            <div key={group[0].transport_request_leg1} className="flex items-center justify-between bg-primary-50 border border-primary-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <Truck className="w-4 h-4 text-primary-600 flex-shrink-0" />
+                <p className="text-sm text-primary-800">
+                  <span className="font-semibold">{group.length} batches</span> from {group[0].cooperative_name} arrived on the same trip
+                  {' — '}{group.map(d => d.crop_name).join(', ')}
+                </p>
+              </div>
+              <button onClick={() => openBulkConfirm(group)}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors flex-shrink-0">
+                <Package className="w-3.5 h-3.5" /> Confirm All ({group.length})
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -295,6 +383,77 @@ export default function IncomingDeliveries() {
         )}
       </Modal>
 
+      {/* Bulk Confirm Receipt Modal — batches that arrived together on one trip */}
+      <Modal isOpen={!!bulkGroup} onClose={() => setBulkGroup(null)}
+        title={`Confirm Whole Delivery — ${bulkGroup?.length || 0} batches`}>
+        {bulkGroup && (
+          <form onSubmit={handleBulkConfirm} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              These batches arrived on the same trip from {bulkGroup[0].cooperative_name}. Enter what was actually received for each, then confirm them all at once.
+            </p>
+            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              {bulkGroup.map(d => {
+                const form = bulkForms[d.id] || {}
+                const { lossKg, lossPct } = bulkLoss(d)
+                return (
+                  <div key={d.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-semibold text-gray-900">{d.crop_name}</span>
+                      <span className="text-gray-400 text-xs">Expected {(Number(d.shipped_qty_kg) / 1000).toFixed(1)} tons</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="label text-xs">Received qty (kg) *</label>
+                        <input type="number" className="input" required min="0"
+                          value={form.received_qty_kg ?? ''}
+                          onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], received_qty_kg: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <label className="label text-xs">Quality grade</label>
+                        <select className="input" value={form.quality_grade_received}
+                          onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], quality_grade_received: e.target.value } }))}>
+                          {GRADE_OPTIONS.map(g => <option key={g} value={g}>Grade {g}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {lossKg > 0 && (
+                      <>
+                        <p className="text-xs font-medium text-warning-700 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> Loss: {lossKg.toLocaleString()} kg ({lossPct}%)
+                        </p>
+                        <select className="input text-sm" required value={form.loss_reason || ''}
+                          onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], loss_reason: e.target.value } }))}>
+                          <option value="">Select loss reason…</option>
+                          <option value="SPOILAGE">Spoilage / Rot</option>
+                          <option value="SPILLAGE">Spillage in transit</option>
+                          <option value="THEFT">Theft</option>
+                          <option value="MOISTURE_LOSS">Moisture loss</option>
+                          <option value="WEIGHT_DISCREPANCY">Weight discrepancy</option>
+                          <option value="OTHER">Other</option>
+                        </select>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            <div>
+              <label className="label">Notes (applies to this whole delivery)</label>
+              <textarea className="input" rows={2} value={bulkNotes} onChange={e => setBulkNotes(e.target.value)}
+                placeholder="Any additional observations about this delivery…" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setBulkGroup(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={bulkSaving}
+                className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {bulkSaving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {bulkSaving ? 'Confirming…' : `Confirm All ${bulkGroup.length} Batches`}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {/* Live Vehicle Data modal */}
       <Modal isOpen={!!iotTarget} onClose={() => setIotTarget(null)}
         title={`Live Vehicle Data — ${iotTarget?.batch_id_short || ''}`}>
@@ -324,7 +483,7 @@ export default function IncomingDeliveries() {
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5" /> Live Location
               </p>
-              <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} height={260} />
+              <TripTrackingMap route={iotData?.route} gpsTracks={iotData?.gps_tracks} height={340} />
             </div>
 
             <button onClick={() => setIotTarget(null)} className="btn-secondary w-full">Close</button>

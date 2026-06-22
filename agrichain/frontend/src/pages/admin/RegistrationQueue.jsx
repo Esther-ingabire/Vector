@@ -73,7 +73,7 @@ function DocViewerModal({ doc, onClose }) {
   )
 }
 
-const ROLE_LABELS = { COOPERATIVE_MANAGER: 'Cooperative Manager', TRANSPORTER: 'Transporter', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer', WAREHOUSE_MANAGER: 'Warehouse Manager' }
+const ROLE_LABELS = { COOPERATIVE_MANAGER: 'Cooperative Manager', TRANSPORT_COMPANY: 'Transport Company', TRANSPORTER: 'Transporter (Driver)', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer', WAREHOUSE_MANAGER: 'Warehouse Manager' }
 
 function RequestCard({ req, onSelect }) {
   return (
