@@ -6,10 +6,22 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "ChainSight needs your location while a trip is active to share live GPS tracking with the cooperative or distributor who requested it."
+      }
     },
     "android": {
-      "package": "rw.gov.minagri.chainsight"
-    }
+      "package": "rw.gov.minagri.chainsight",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ChainSight needs your location while a trip is active to share live GPS tracking with the cooperative or distributor who requested it."
+        }
+      ]
+    ]
   }
 }

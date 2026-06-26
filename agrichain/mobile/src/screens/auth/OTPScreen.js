@@ -98,7 +98,7 @@ export default function OTPScreen({ navigation }) {
     }
     setLoading(true);
     try {
-      const { data } = await verifyOtp({ credential: credential.trim(), otp });
+      const { data } = await verifyOtp({ credential: credential.trim(), otp_code: otp });
       if (data.access) {
         setAuthTokens(data.access, data.refresh);
         if (data.must_change_password) {

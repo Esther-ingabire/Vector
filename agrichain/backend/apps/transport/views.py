@@ -2,11 +2,11 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport
+from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport, TransporterRating
 from .serializers import (
     TransporterSerializer, DriverSerializer, VehicleSerializer,
     TransportRequestSerializer, TripSerializer, TripListSerializer, GPSTrackSerializer,
-    IncidentReportSerializer,
+    IncidentReportSerializer, TransporterRatingSerializer,
 )
 from apps.authentication.permissions import IsTransporter
 from apps.notifications.models import Notification
@@ -32,13 +32,18 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
             return Transporter.objects.filter(user=user)
         return Transporter.objects.filter(is_active=True)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsTransporter])
+    @action(detail=False, methods=['get', 'patch'], permission_classes=[IsTransporter])
     def my(self, request):
         try:
             t = request.user.transporter_profile
-            return Response(TransporterSerializer(t).data)
         except Transporter.DoesNotExist:
             return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        if request.method == 'PATCH':
+            serializer = TransporterSerializer(t, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+        return Response(TransporterSerializer(t).data)
 
     @action(detail=False, methods=['get'], url_path='my-drivers', permission_classes=[IsTransporter])
     def my_drivers(self, request):
@@ -59,6 +64,33 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
             )
         drivers = company.drivers.select_related('user').prefetch_related('vehicles', 'transport_requests')
         return Response(DriverSerializer(drivers, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='my-ratings', permission_classes=[IsTransporter])
+    def my_ratings(self, request):
+        """
+        Average rating + recent feedback for this transporter — for a Transport Company,
+        rolled up across every driver it registered too, since the rating reflects the
+        company's reputation regardless of which driver actually ran the job.
+        """
+        from django.db.models import Avg, Count
+        try:
+            me = request.user.transporter_profile
+        except Transporter.DoesNotExist:
+            return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        ids = [me.id]
+        if me.parent_company_id is None:
+            ids += list(me.drivers.values_list('id', flat=True))
+
+        ratings = TransporterRating.objects.filter(transporter_id__in=ids).select_related(
+            'transporter__user', 'rated_by_cooperative', 'rated_by_distributor',
+        )
+        agg = ratings.aggregate(avg=Avg('rating'), count=Count('id'))
+        return Response({
+            'average_rating': round(agg['avg'], 1) if agg['avg'] is not None else None,
+            'rating_count': agg['count'],
+            'recent': TransporterRatingSerializer(ratings[:20], many=True).data,
+        })
 
     @action(detail=False, methods=['post'], url_path='register-driver', permission_classes=[IsTransporter])
     def register_driver(self, request):
@@ -148,16 +180,29 @@ class VehicleViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        from django.db.models import Q
         user = self.request.user
         if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
-                return Vehicle.objects.filter(transporter=user.transporter_profile)
+                me = user.transporter_profile
             except Transporter.DoesNotExist:
                 return Vehicle.objects.none()
+            if user.role == 'TRANSPORT_COMPANY':
+                # A company manages vehicles for itself and for every driver it registered.
+                return Vehicle.objects.filter(Q(transporter=me) | Q(transporter__parent_company=me))
+            return Vehicle.objects.filter(transporter=me)
         return Vehicle.objects.filter(is_active=True)
 
     def perform_create(self, serializer):
-        serializer.save(transporter=self.request.user.transporter_profile)
+        user = self.request.user
+        me = user.transporter_profile
+        target = me
+        driver_id = self.request.data.get('transporter')
+        if user.role == 'TRANSPORT_COMPANY' and driver_id:
+            driver = Transporter.objects.filter(id=driver_id, parent_company=me).first()
+            if driver:
+                target = driver
+        serializer.save(transporter=target)
 
 
 class TransportRequestViewSet(viewsets.ModelViewSet):
@@ -232,6 +277,57 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         )
         return Response(TransportRequestSerializer(req).data)
 
+    @action(detail=True, methods=['post'], permission_classes=[IsTransporter], url_path='assign-driver')
+    def assign_driver(self, request, pk=None):
+        """
+        A Transport Company hands an incoming request off to one of its own drivers (and
+        optionally a specific truck) instead of running it under the company account itself.
+        Same end state as `accept` — status ACCEPTED, a Trip created — just landing on the
+        driver's own Transporter row instead of the company's.
+        """
+        req = self.get_object()
+        if request.user.role != 'TRANSPORT_COMPANY':
+            return Response({'detail': 'Only a transport company account can assign drivers.'}, status=status.HTTP_403_FORBIDDEN)
+        company = request.user.transporter_profile
+        if req.transporter_id != company.id:
+            return Response({'detail': 'This request is not addressed to your company.'}, status=status.HTTP_403_FORBIDDEN)
+        if req.status != TransportRequest.Status.PENDING:
+            return Response({'detail': 'Request is not pending.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        driver = Transporter.objects.filter(id=request.data.get('driver'), parent_company=company).first()
+        if not driver:
+            return Response({'detail': 'Driver not found under your company.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        vehicle = None
+        vehicle_id = request.data.get('vehicle')
+        if vehicle_id:
+            vehicle = Vehicle.objects.filter(id=vehicle_id, transporter=driver).first()
+            if not vehicle:
+                return Response({'detail': 'Vehicle not found under that driver.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        req.transporter = driver
+        req.vehicle = vehicle
+        req.status = TransportRequest.Status.ACCEPTED
+        req.accepted_at = timezone.now()
+        req.save()
+        Trip.objects.create(transport_request=req)
+
+        notify(
+            driver.user,
+            Notification.NotificationType.TRANSPORT_REQUEST_RECEIVED,
+            'Job Assigned to You',
+            f'{company} assigned you the pickup at {req.pickup_location} → {req.destination}.',
+            related_object_type='transport_request', related_object_id=req.id,
+        )
+        notify(
+            _requester_user(req),
+            Notification.NotificationType.TRANSPORT_ACCEPTED,
+            'Transport Request Accepted',
+            f'{company} accepted the pickup at {req.pickup_location} and assigned driver {driver}.',
+            related_object_type='transport_request', related_object_id=req.id,
+        )
+        return Response(TransportRequestSerializer(req).data)
+
     @action(detail=True, methods=['post'], permission_classes=[IsTransporter])
     def decline(self, request, pk=None):
         req = self.get_object()
@@ -242,6 +338,59 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         req.decline_reason = reason
         req.save()
         return Response(TransportRequestSerializer(req).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def rate(self, request, pk=None):
+        """
+        The cooperative or distributor that requested this leg rates the transporter once it's
+        delivered — one rating per completed request. Feeds the transporter/company's
+        reputation on their own Company Profile.
+        """
+        req = self.get_object()
+        user = request.user
+        if user.role == 'COOPERATIVE_MANAGER':
+            try:
+                owns_it = req.requested_by_cooperative_id == user.cooperative.id
+            except Exception:
+                owns_it = False
+            rated_by = {'rated_by_cooperative': user.cooperative if owns_it else None}
+        elif user.role == 'DISTRIBUTOR':
+            try:
+                owns_it = req.requested_by_distributor_id == user.distributor_profile.id
+            except Exception:
+                owns_it = False
+            rated_by = {'rated_by_distributor': user.distributor_profile if owns_it else None}
+        else:
+            return Response({'detail': 'Only the cooperative or distributor that requested this leg can rate it.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not owns_it:
+            return Response({'detail': 'This request was not made by you.'}, status=status.HTTP_403_FORBIDDEN)
+        if req.status != TransportRequest.Status.COMPLETED:
+            return Response({'detail': 'This job has not been delivered yet.'}, status=status.HTTP_400_BAD_REQUEST)
+        if hasattr(req, 'rating'):
+            return Response({'detail': 'Already rated.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rating_value = request.data.get('rating')
+        try:
+            rating_value = int(rating_value)
+        except (TypeError, ValueError):
+            rating_value = 0
+        if not 1 <= rating_value <= 5:
+            return Response({'detail': 'Rating must be between 1 and 5.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rating = TransporterRating.objects.create(
+            transport_request=req, transporter=req.transporter,
+            rating=rating_value, comment=request.data.get('comment', ''),
+            **rated_by,
+        )
+        notify(
+            req.transporter.user,
+            Notification.NotificationType.TRANSPORT_ACCEPTED,
+            'New Rating Received',
+            f'You received a {rating_value}-star rating for the delivery to {req.destination}.',
+            related_object_type='transport_request', related_object_id=req.id,
+        )
+        return Response(TransporterRatingSerializer(rating).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='create-multi-stop')
     def create_multi_stop(self, request):
@@ -451,14 +600,21 @@ class IncidentReportViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        from django.db.models import Q
         user = self.request.user
         if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
             try:
-                return IncidentReport.objects.filter(
-                    trip__transport_request__transporter=user.transporter_profile
-                )
+                me = user.transporter_profile
             except Exception:
                 return IncidentReport.objects.none()
+            if user.role == 'TRANSPORT_COMPANY':
+                # A company resolves incidents its drivers reported, not just ones tied to
+                # its own (rarely-used) profile-level trips.
+                return IncidentReport.objects.filter(
+                    Q(trip__transport_request__transporter=me) |
+                    Q(trip__transport_request__transporter__parent_company=me)
+                )
+            return IncidentReport.objects.filter(trip__transport_request__transporter=me)
         if user.role == 'COOPERATIVE_MANAGER':
             try:
                 return IncidentReport.objects.filter(

@@ -130,18 +130,23 @@ class ExportReportView(APIView):
     # ── shared renderers ────────────────────────────────────────────────────
 
     @staticmethod
-    def _csv_response(headers, rows, base_filename):
+    def _csv_response(headers, rows, base_filename, extra_sections=None):
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(headers)
         writer.writerows(rows)
+        for section_title, section_headers, section_rows in (extra_sections or []):
+            writer.writerow([])
+            writer.writerow([section_title])
+            writer.writerow(section_headers)
+            writer.writerows(section_rows)
         buf.seek(0)
         resp = HttpResponse(buf.getvalue(), content_type='text/csv; charset=utf-8')
         resp['Content-Disposition'] = f'attachment; filename="{base_filename}.csv"'
         return resp
 
     @staticmethod
-    def _pdf_response(title, headers, rows, base_filename, request):
+    def _pdf_response(title, headers, rows, base_filename, request, extra_sections=None):
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import cm
@@ -184,6 +189,27 @@ class ExportReportView(APIView):
             elements.append(Spacer(1, 0.3 * cm))
             elements.append(Paragraph(f'{len(rows)} record(s).', styles['Normal']))
 
+        for section_title, section_headers, section_rows in (extra_sections or []):
+            elements.append(Spacer(1, 0.7 * cm))
+            elements.append(Paragraph(section_title, styles['Heading2']))
+            elements.append(Spacer(1, 0.2 * cm))
+            if not section_rows:
+                elements.append(Paragraph('No data available.', styles['Normal']))
+                continue
+            section_table = Table([section_headers] + [[str(c) for c in row] for row in section_rows], repeatRows=1)
+            section_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#15803d')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(section_table)
+
         doc.build(elements)
         buf.seek(0)
         resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
@@ -208,10 +234,17 @@ class ExportReportView(APIView):
         if isinstance(result, Response):
             return result  # error path (e.g. missing profile)
 
-        title, headers, rows, base_filename = result
+        # Handlers normally return a 4-tuple; a 5th element (extra_sections) lets a "combine
+        # everything" report append summary tables — e.g. route performance — after the main
+        # one, all in the same CSV/PDF download instead of separate files.
+        extra_sections = None
+        if len(result) == 5:
+            title, headers, rows, base_filename, extra_sections = result
+        else:
+            title, headers, rows, base_filename = result
         if request.query_params.get('file_format', 'csv').lower() == 'pdf':
-            return self._pdf_response(title, headers, rows, base_filename, request)
-        return self._csv_response(headers, rows, base_filename)
+            return self._pdf_response(title, headers, rows, base_filename, request, extra_sections=extra_sections)
+        return self._csv_response(headers, rows, base_filename, extra_sections=extra_sections)
 
     # ── Cooperative Manager ─────────────────────────────────────────────────
 
@@ -371,12 +404,11 @@ class ExportReportView(APIView):
             ])
         return f'Transporter Jobs Report — {transporter}', headers, rows, 'transporter_jobs_report'
 
-    def _trans_performance(self, request):
-        from apps.transport.models import TransportRequest, Trip
-        try:
-            transporter = request.user.transporter_profile
-        except Exception:
-            return Response({'detail': 'No transporter profile linked.'}, status=400)
+    @staticmethod
+    def _route_performance_rows(transporter):
+        """Per-route on-time rate + avg transit hours — shared by the standalone Performance
+        Report and as the summary section appended to the Complete Activity Report."""
+        from apps.transport.models import TransportRequest
 
         routes: dict = {}
         for j in TransportRequest.objects.filter(transporter=transporter):
@@ -404,6 +436,15 @@ class ExportReportView(APIView):
             ]
             for route, d in sorted(routes.items())
         ]
+        return headers, rows
+
+    def _trans_performance(self, request):
+        try:
+            transporter = request.user.transporter_profile
+        except Exception:
+            return Response({'detail': 'No transporter profile linked.'}, status=400)
+
+        headers, rows = self._route_performance_rows(transporter)
         return f'Transporter Performance Report — {transporter}', headers, rows, 'transporter_performance_report'
 
     def _trans_complete(self, request):
@@ -446,7 +487,10 @@ class ExportReportView(APIView):
                 j.required_pickup_datetime.strftime('%Y-%m-%d %H:%M') if j.required_pickup_datetime else '',
                 pickup, delivery, hrs, incidents,
             ])
-        return f'Complete Activity Report — {transporter}', headers, rows, 'transporter_complete_report'
+
+        perf_headers, perf_rows = self._route_performance_rows(transporter)
+        extra_sections = [('Delivery Performance by Route', perf_headers, perf_rows)]
+        return f'Complete Activity Report — {transporter}', headers, rows, 'transporter_complete_report', extra_sections
 
     # ── Distributor ─────────────────────────────────────────────────────────
 

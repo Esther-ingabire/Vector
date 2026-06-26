@@ -3,7 +3,10 @@ import mapboxgl from 'mapbox-gl'
 export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ''
 mapboxgl.accessToken = MAPBOX_TOKEN
 
-export const MAPBOX_STYLE = 'mapbox://styles/mapbox/streets-v12'
+// Mapbox's "Standard" style — vibrant colors, 3D buildings, and a much denser default POI
+// layer (restaurants, hotels, schools, hospitals) than the older "streets" style, closer to
+// the Google/Apple Maps look this app's maps are styled after.
+export const MAPBOX_STYLE = 'mapbox://styles/mapbox/standard'
 
 // Rwanda center, [lng, lat] — Mapbox coordinate order (opposite of the Leaflet [lat, lng] used elsewhere in this codebase)
 export const RWANDA_CENTER = [29.8739, -1.9403]

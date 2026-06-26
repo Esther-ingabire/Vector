@@ -5,6 +5,7 @@ Transport models: Transporters, Vehicles, TransportRequests, Trips, GPS tracking
 import uuid
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class Transporter(models.Model):
@@ -17,6 +18,8 @@ class Transporter(models.Model):
                                         related_name='transporter_profile',
                                         limit_choices_to={'role__in': ['TRANSPORTER', 'TRANSPORT_COMPANY']})
     company_name = models.CharField(max_length=200, blank=True, help_text="Optional — for company registrations")
+    description  = models.TextField(blank=True, help_text="Company profile blurb — who we are, what we offer")
+    base_location = models.CharField(max_length=300, blank=True, help_text="Office/depot address — e.g. 'Kacyiru, Kigali'")
     operating_districts = models.JSONField(default=list, help_text="List of districts this transporter covers")
     registered_by_cooperative = models.ForeignKey(
         'cooperatives.Cooperative', null=True, blank=True,
@@ -201,6 +204,32 @@ class IncidentReport(models.Model):
         return f"{self.get_incident_type_display()} on Trip #{self.trip_id}"
 
 
+class TransporterRating(models.Model):
+    """
+    A 1-5 star rating + optional comment left by whoever requested a transport leg (cooperative
+    or distributor), once that job is delivered. One rating per completed request — feeds the
+    transporter/company's reputation, visible on their own Company Profile.
+    """
+
+    transport_request = models.OneToOneField(TransportRequest, on_delete=models.CASCADE, related_name='rating')
+    transporter        = models.ForeignKey(Transporter, on_delete=models.CASCADE, related_name='ratings')
+    rated_by_cooperative = models.ForeignKey(
+        'cooperatives.Cooperative', null=True, blank=True, on_delete=models.SET_NULL,
+    )
+    rated_by_distributor = models.ForeignKey(
+        'distribution.Distributor', null=True, blank=True, on_delete=models.SET_NULL,
+    )
+    rating     = models.PositiveSmallIntegerField(help_text="1-5 stars")
+    comment    = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.rating}★ for {self.transporter} (Request #{self.transport_request_id})"
+
+
 class GPSTrack(models.Model):
     """
     GPS location records for a trip. Posted from the transporter's mobile device every 2 minutes.
@@ -210,7 +239,9 @@ class GPSTrack(models.Model):
     latitude    = models.DecimalField(max_digits=9, decimal_places=6)
     longitude   = models.DecimalField(max_digits=9, decimal_places=6)
     speed_kmh   = models.FloatField(null=True, blank=True)
-    timestamp   = models.DateTimeField()
+    # Defaults to receipt time — lets the mobile client post lat/lng/speed only, avoiding any
+    # clock-skew between the phone and the server (same reasoning as IoTReading.timestamp).
+    timestamp   = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ['timestamp']

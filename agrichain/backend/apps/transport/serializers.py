@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport
+from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport, TransporterRating
 
 
 class VehicleSerializer(serializers.ModelSerializer):
@@ -14,11 +14,12 @@ class TransporterSerializer(serializers.ModelSerializer):
     vehicles = VehicleSerializer(many=True, read_only=True)
     name = serializers.SerializerMethodField()
     phone_number = serializers.CharField(source='user.phone_number', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
 
     class Meta:
         model = Transporter
-        fields = ['id', 'user', 'company_name', 'operating_districts', 'is_active',
-                  'vehicles', 'name', 'phone_number', 'parent_company']
+        fields = ['id', 'user', 'company_name', 'description', 'base_location', 'operating_districts',
+                  'is_active', 'vehicles', 'name', 'phone_number', 'email', 'parent_company']
         read_only_fields = ['id', 'user']
 
     def get_name(self, obj):
@@ -44,6 +45,28 @@ class IncidentReportSerializer(serializers.ModelSerializer):
         fields = ['id', 'trip', 'incident_type', 'incident_type_display', 'description',
                   'gps_lat', 'gps_lng', 'resolved', 'reported_at']
         read_only_fields = ['id', 'reported_at']
+
+
+class TransporterRatingSerializer(serializers.ModelSerializer):
+    rated_by = serializers.SerializerMethodField()
+    driver_name = serializers.CharField(source='transporter.__str__', read_only=True)
+    route = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TransporterRating
+        fields = ['id', 'transport_request', 'rating', 'comment', 'rated_by', 'driver_name', 'route', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def get_rated_by(self, obj):
+        if obj.rated_by_cooperative:
+            return obj.rated_by_cooperative.name
+        if obj.rated_by_distributor:
+            return obj.rated_by_distributor.company_name or str(obj.rated_by_distributor)
+        return 'Unknown'
+
+    def get_route(self, obj):
+        req = obj.transport_request
+        return f'{req.pickup_location} → {req.destination}'
 
 
 class GPSTrackSerializer(serializers.ModelSerializer):
@@ -93,6 +116,7 @@ class TransportRequestSerializer(serializers.ModelSerializer):
     vehicle_plate = serializers.CharField(source='vehicle.plate_number', read_only=True)
     requester_type = serializers.SerializerMethodField()
     requester_name = serializers.SerializerMethodField()
+    has_rating = serializers.SerializerMethodField()
 
     class Meta:
         model = TransportRequest
@@ -104,9 +128,12 @@ class TransportRequestSerializer(serializers.ModelSerializer):
                   'cargo_description', 'estimated_cargo_weight_kg',
                   'requires_refrigeration', 'required_pickup_datetime',
                   'status', 'decline_reason', 'accepted_at', 'notes',
-                  'run_id', 'stop_sequence',
+                  'run_id', 'stop_sequence', 'has_rating',
                   'created_at', 'updated_at', 'trip']
         read_only_fields = ['id', 'accepted_at', 'created_at', 'updated_at']
+
+    def get_has_rating(self, obj):
+        return hasattr(obj, 'rating')
 
     def get_requester_type(self, obj):
         if obj.requested_by_cooperative_id:

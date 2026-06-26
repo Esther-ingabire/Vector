@@ -129,6 +129,10 @@ export default function DashboardScreen() {
   );
 
   const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      if (window.confirm('Are you sure you want to sign out?')) logout();
+      return;
+    }
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: logout },

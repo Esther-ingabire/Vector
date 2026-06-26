@@ -4,6 +4,7 @@ Data ingested from ESP32 devices via HTTP POST or MQTT.
 """
 
 from django.db import models
+from django.utils import timezone
 
 
 class IoTReading(models.Model):
@@ -16,7 +17,9 @@ class IoTReading(models.Model):
                                           related_name='iot_readings')
     temperature_celsius = models.FloatField()
     humidity_percent    = models.FloatField(null=True, blank=True)
-    timestamp           = models.DateTimeField(db_index=True)
+    # Defaults to the moment the server receives the reading — lets a device without an
+    # RTC/NTP clock (e.g. a bare ESP32 with no internet time sync) omit this field entirely.
+    timestamp           = models.DateTimeField(db_index=True, default=timezone.now)
 
     # Breach flags — set automatically on save
     is_temperature_breach = models.BooleanField(default=False)
@@ -54,7 +57,7 @@ class VehicleIoTReading(models.Model):
 
     trip                = models.ForeignKey('transport.Trip', on_delete=models.CASCADE, related_name='iot_readings')
     temperature_celsius = models.FloatField()
-    timestamp           = models.DateTimeField(db_index=True)
+    timestamp           = models.DateTimeField(db_index=True, default=timezone.now)
     is_breach           = models.BooleanField(default=False)
     alert_sent          = models.BooleanField(default=False)
 

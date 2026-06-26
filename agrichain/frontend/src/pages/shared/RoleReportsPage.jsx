@@ -52,7 +52,7 @@ const CATALOG = {
     {
       type: 'complete',
       name: 'Complete Activity Report',
-      desc: 'Every job — requester, vehicle, actual pickup/delivery times, transit hours, and incidents — in one report.',
+      desc: 'Every job — requester, vehicle, actual pickup/delivery times, transit hours, and incidents — plus a per-route performance summary, all in one report.',
       filename: 'transporter_complete_report.csv',
       icon: FileText,
       color: 'text-violet-600',

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Users, Truck, Building2, MapPin, AlertTriangle, CheckCircle, Clock, Loader } from 'lucide-react'
+import { Search, Users, Truck, Building2, MapPin, AlertTriangle, CheckCircle, Clock, Loader, Thermometer } from 'lucide-react'
 import { traceabilityApi } from '../../api/traceability.js'
 import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
 
@@ -233,6 +233,24 @@ export default function TraceabilityPage() {
             </div>
           ) : (
             <>
+            {detail && iotData?.temperature_readings?.length > 0 && (() => {
+              const latest = iotData.temperature_readings[0]
+              const breachCount = iotData.temperature_readings.filter(r => r.is_breach).length
+              return (
+                <div className={`flex items-center gap-4 mb-4 p-3.5 rounded-xl ${latest.is_breach ? 'bg-danger-50 border border-danger-200' : 'bg-gray-50 border border-gray-100'}`}>
+                  <Thermometer className={`w-5 h-5 flex-shrink-0 ${latest.is_breach ? 'text-danger-600' : 'text-primary-600'}`} />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-700">Cold-Chain Status</p>
+                    <p className="text-xs text-gray-500">
+                      As of {new Date(latest.timestamp).toLocaleString()}
+                      {breachCount > 0 && <span className="text-danger-600 ml-1">· {breachCount} breach{breachCount > 1 ? 'es' : ''}</span>}
+                    </p>
+                  </div>
+                  <p className={`text-xl font-bold flex-shrink-0 ${latest.is_breach ? 'text-danger-600' : 'text-success-600'}`}>{latest.temperature_celsius}°C</p>
+                </div>
+              )
+            })()}
+
             {detail && iotData?.route && (
               <div className="mb-6">
                 <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">

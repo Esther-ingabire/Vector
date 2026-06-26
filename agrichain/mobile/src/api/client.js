@@ -43,7 +43,6 @@ const client = axios.create({
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
-    'bypass-tunnel-reminder': 'true',  // localtunnel bypass
   },
 });
 

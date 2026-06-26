@@ -56,4 +56,10 @@ app.conf.beat_schedule = {
         'task': 'apps.transport.tasks.check_trip_delays',
         'schedule': crontab(minute='*/10'),
     },
+    # GPS simulation (development only) — advances a simulated vehicle marker every 2 min,
+    # since no real device currently posts live GPS (see apps/transport/tasks.py)
+    'gps-simulation': {
+        'task': 'apps.transport.tasks.simulate_gps_tracks',
+        'schedule': crontab(minute='*/2'),
+    },
 }

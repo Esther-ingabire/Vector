@@ -209,6 +209,8 @@ class Command(BaseCommand):
         ProduceRequest.objects.filter(distributor__user__username__in=demo_usernames).delete()
         ProduceRequest.objects.filter(cooperative__manager__username__in=demo_usernames).delete()
         Trip.objects.filter(transport_request__transporter__user__username__in=demo_usernames).delete()
+        Trip.objects.filter(transport_request__requested_by_cooperative__manager__username__in=demo_usernames).delete()
+        Trip.objects.filter(transport_request__requested_by_distributor__user__username__in=demo_usernames).delete()
         TransportRequest.objects.filter(transporter__user__username__in=demo_usernames).delete()
         TransportRequest.objects.filter(requested_by_cooperative__manager__username__in=demo_usernames).delete()
         Vehicle.objects.filter(transporter__user__username__in=demo_usernames).delete()
@@ -905,6 +907,7 @@ class Command(BaseCommand):
 
     def _seed_pending_requests(self, coops, distributors, crops):
         from apps.distribution.models import ProduceRequest
+        from apps.transport.models import Transporter, TransportRequest
 
         self.stdout.write('  Seeding pending produce requests...')
         dist_kigali = distributors.get('dist.kigali')
@@ -940,6 +943,163 @@ class Command(BaseCommand):
             )
             count += 1
         self.stdout.write(f'    {count} pending produce requests created')
+
+        # ── Mobile demo transport requests ────────────────────────────────────
+        # Seed 2 PENDING + 1 ACCEPTED (active trip) transport requests assigned
+        # directly to driver.mugenzi so the mobile transporter screens have data.
+        self.stdout.write('  Seeding mobile demo transport requests for driver.mugenzi...')
+        try:
+            driver = Transporter.objects.get(user__username='driver.mugenzi')
+        except Transporter.DoesNotExist:
+            self.stdout.write('    driver.mugenzi not found, skipping mobile demo requests')
+            return
+
+        musanze_coop, _ = coops['Musanze']
+        kigali_coop, _  = coops['Kigali']
+        pickup_dt = timezone.now() + timedelta(hours=2)
+
+        mobile_requests = [
+            dict(
+                transporter=driver,
+                requested_by_cooperative=musanze_coop,
+                leg_number=1,
+                pickup_location='Musanze Market Hub, Northern Province',
+                pickup_gps_lat=DISTRICT_CFG['Musanze']['gps'][0],
+                pickup_gps_lng=DISTRICT_CFG['Musanze']['gps'][1],
+                destination=dist_kigali.warehouse_location,
+                destination_gps_lat=dist_kigali.warehouse_gps_lat,
+                destination_gps_lng=dist_kigali.warehouse_gps_lng,
+                cargo_description='Tomatoes — Grade A',
+                estimated_cargo_weight_kg=320,
+                requires_refrigeration=True,
+                required_pickup_datetime=pickup_dt,
+                status='PENDING',
+            ),
+            dict(
+                transporter=driver,
+                requested_by_cooperative=kigali_coop,
+                leg_number=1,
+                pickup_location='Kigali Farm Hub, Nyarugenge District',
+                pickup_gps_lat=DISTRICT_CFG['Kigali']['gps'][0],
+                pickup_gps_lng=DISTRICT_CFG['Kigali']['gps'][1],
+                destination=dist_north.warehouse_location,
+                destination_gps_lat=dist_north.warehouse_gps_lat,
+                destination_gps_lng=dist_north.warehouse_gps_lng,
+                cargo_description='Avocados — Grade A',
+                estimated_cargo_weight_kg=480,
+                requires_refrigeration=False,
+                required_pickup_datetime=pickup_dt + timedelta(hours=4),
+                status='PENDING',
+            ),
+        ]
+        for req_data in mobile_requests:
+            TransportRequest.objects.get_or_create(
+                transporter=driver,
+                status='PENDING',
+                cargo_description=req_data['cargo_description'],
+                defaults=req_data,
+            )
+
+        # One ACCEPTED request so Active Trip screen also has data
+        active_pickup_dt = timezone.now() - timedelta(hours=1)
+        active_tr, _ = TransportRequest.objects.get_or_create(
+            transporter=driver,
+            status='ACCEPTED',
+            cargo_description='Maize — Grade B (active)',
+            defaults=dict(
+                requested_by_cooperative=musanze_coop,
+                leg_number=1,
+                pickup_location='Musanze Market Hub, Northern Province',
+                pickup_gps_lat=DISTRICT_CFG['Musanze']['gps'][0],
+                pickup_gps_lng=DISTRICT_CFG['Musanze']['gps'][1],
+                destination=dist_kigali.warehouse_location,
+                destination_gps_lat=dist_kigali.warehouse_gps_lat,
+                destination_gps_lng=dist_kigali.warehouse_gps_lng,
+                cargo_description='Maize — Grade B (active)',
+                estimated_cargo_weight_kg=600,
+                requires_refrigeration=False,
+                required_pickup_datetime=active_pickup_dt,
+                status='ACCEPTED',
+                accepted_at=active_pickup_dt,
+            ),
+        )
+        from apps.transport.models import Trip
+        Trip.objects.get_or_create(
+            transport_request=active_tr,
+            defaults=dict(actual_pickup_datetime=active_pickup_dt),
+        )
+        self.stdout.write('    2 pending + 1 active trip seeded for driver.mugenzi')
+
+        # ── Mobile demo data for agent.kimironko ──────────────────────────────
+        # Guarantee notices, orders, a collection confirmation and a waste report
+        # are tied to agent.kimironko so the market-agent mobile screens always
+        # have something to show regardless of the random batch assignment above.
+        self.stdout.write('  Seeding mobile demo data for agent.kimironko...')
+        from apps.market_agents.models import MarketAgent, CollectionConfirmation, WasteReport
+        from apps.distribution.models import CollectionNotice, Order
+        from apps.cooperatives.models import Crop
+        try:
+            kimironko = MarketAgent.objects.get(user__username='agent.kimironko')
+        except MarketAgent.DoesNotExist:
+            self.stdout.write('    agent.kimironko not found, skipping')
+            return
+
+        tomato = Crop.objects.filter(name='Tomatoes').first()
+        avocado = Crop.objects.filter(name='Avocados').first()
+        now = timezone.now()
+
+        for crop, qty, label in [
+            (tomato,  280, 'Tomatoes — Grade A'),
+            (avocado, 350, 'Avocados — Grade A'),
+        ]:
+            if not crop:
+                continue
+            notice = CollectionNotice.objects.create(
+                distributor=dist_kigali,
+                crop=crop,
+                pickup_location=dist_kigali.warehouse_location,
+                available_quantity_kg=qty,
+                collection_deadline=now + timedelta(days=5),
+            )
+            order = Order.objects.create(
+                collection_notice=notice,
+                market_agent=kimironko,
+                distributor=dist_kigali,
+                quantity_requested_kg=qty,
+                confirmed_quantity_kg=qty,
+                delivery_method='SELF_COLLECTION',
+                status='COMPLETED',
+                confirmed_at=now - timedelta(hours=6),
+            )
+            collect_dt = now - timedelta(hours=4)
+            self_loss = round(qty * 0.012, 2)
+            arrived = round(qty - self_loss, 2)
+            CollectionConfirmation.objects.create(
+                order=order,
+                market_agent=kimironko,
+                quantity_collected_kg=qty,
+                collected_at=collect_dt,
+                step1_idempotency_key=uuid.uuid4(),
+                quantity_arrived_at_stall_kg=arrived,
+                arrived_at=collect_dt + timedelta(minutes=45),
+                step2_idempotency_key=uuid.uuid4(),
+                self_transport_loss_kg=self_loss,
+                self_transport_loss_pct=round(self_loss / qty * 100, 2),
+            )
+            discarded = round(arrived * 0.04, 2)
+            sold = round(arrived - discarded, 2)
+            WasteReport.objects.create(
+                order=order,
+                market_agent=kimironko,
+                reporting_period_start=(now - timedelta(days=3)).date(),
+                reporting_period_end=now.date(),
+                quantity_sold_kg=sold,
+                quantity_discarded_kg=discarded,
+                discard_reason='SPOILAGE',
+                market_spoilage_loss_pct=round(discarded / arrived * 100, 2),
+                idempotency_key=uuid.uuid4(),
+            )
+        self.stdout.write('    notices, orders, collections and waste reports seeded for agent.kimironko')
 
     # ── Warehouse manager (independent cold-storage operator) ───────────────
 

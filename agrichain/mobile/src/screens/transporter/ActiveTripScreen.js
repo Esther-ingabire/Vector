@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,9 +14,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 
-import { getMyActiveTrip, confirmDelivery, confirmPickup, reportIncident, getVehicleIotReadings } from '../../api/transport';
+import { getMyActiveTrip, confirmDelivery, confirmPickup, reportIncident, getVehicleIotReadings, postGPSUpdate } from '../../api/transport';
 import { C, S } from '../../theme';
+
+// Matches the ~2-minute posting interval documented on the backend (GPSTrack model docstring,
+// the delay-alert heuristic's threshold). Only runs while a trip is actually in transit —
+// pickup confirmed, delivery not yet confirmed — and only while this screen is focused, so it
+// doesn't quietly drain the battery once the driver has moved on to something else.
+const GPS_POST_INTERVAL_MS = 2 * 60 * 1000;
 
 const INCIDENT_TYPES = [
   { value: 'FLAT_TIRE', label: 'Flat Tire' },
@@ -117,6 +124,45 @@ export default function ActiveTripScreen() {
     useCallback(() => {
       fetchTrip();
     }, [fetchTrip]),
+  );
+
+  // Live GPS reporting — only while a trip is actually in transit, and only while this
+  // screen has focus. Cleans itself up automatically when either condition stops being true.
+  const tripIdRef = useRef(null);
+  tripIdRef.current = trip?.id ?? null;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!trip?.pickup_confirmed_at || trip?.delivery_confirmed_at) return;
+
+      let cancelled = false;
+      let intervalId = null;
+
+      const postOnce = async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted' || cancelled) return;
+          const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          if (cancelled || !tripIdRef.current) return;
+          await postGPSUpdate({
+            trip: tripIdRef.current,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            speed_kmh: position.coords.speed != null ? Math.max(0, position.coords.speed * 3.6) : null,
+          });
+        } catch {
+          // Best effort — a missed GPS tick isn't worth interrupting the driver over.
+        }
+      };
+
+      postOnce();
+      intervalId = setInterval(postOnce, GPS_POST_INTERVAL_MS);
+
+      return () => {
+        cancelled = true;
+        if (intervalId) clearInterval(intervalId);
+      };
+    }, [trip?.id, trip?.pickup_confirmed_at, trip?.delivery_confirmed_at]),
   );
 
   const handleConfirmPickup = () => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search, Route } from 'lucide-react'
+import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search, Route, Star } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
@@ -50,6 +50,11 @@ export default function TransportRequests() {
   const [editingTransporter, setEditingTransporter] = useState(null)
   const [editTForm, setEditTForm] = useState({ company_name: '', operating_districts: '' })
   const [form, setForm] = useState(BLANK_REQUEST)
+  const [ratingTarget, setRatingTarget] = useState(null)
+  const [ratingValue, setRatingValue] = useState(0)
+  const [ratingHover, setRatingHover] = useState(0)
+  const [ratingComment, setRatingComment] = useState('')
+  const [submittingRating, setSubmittingRating] = useState(false)
   const [tForm, setTForm] = useState(BLANK_TRANSPORTER)
   const [saving, setSaving] = useState(false)
   // Extra drop-offs beyond `form.destination` — a multi-stop run, one pickup → several
@@ -189,6 +194,28 @@ export default function TransportRequests() {
     }
   }
 
+  const openRating = (req) => {
+    setRatingTarget(req)
+    setRatingValue(0)
+    setRatingComment('')
+  }
+
+  const submitRating = async (e) => {
+    e.preventDefault()
+    if (!ratingValue) { toast.error('Pick a star rating first'); return }
+    setSubmittingRating(true)
+    try {
+      await transportApi.rateRequest(ratingTarget.id, { rating: ratingValue, comment: ratingComment })
+      toast.success('Thanks — rating submitted')
+      setRequests(prev => prev.map(r => r.id === ratingTarget.id ? { ...r, has_rating: true } : r))
+      setRatingTarget(null)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Could not submit rating')
+    } finally {
+      setSubmittingRating(false)
+    }
+  }
+
   const handleDeactivateTransporter = async (t) => {
     if (!window.confirm(`Deactivate ${tName(t)}? They will no longer appear in your transporter list.`)) return
     try {
@@ -214,6 +241,11 @@ export default function TransportRequests() {
     { key: 'required_pickup_datetime', label: 'Pickup', render: v => v ? v.split('T')[0] : '—' },
     { key: 'transporter_name', label: 'Transporter', render: v => v || <span className="text-gray-400 text-sm">—</span> },
     { key: 'status', label: 'Status', render: v => <StatusBadge status={v} /> },
+    { key: 'rate_action', label: '', render: (_, row) => row.status === 'COMPLETED' && (
+      row.has_rating
+        ? <span className="text-xs text-gray-400 flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-warning-400 text-warning-400" /> Rated</span>
+        : <button onClick={() => openRating(row)} className="text-xs font-semibold text-primary-600 hover:underline">Rate</button>
+    )},
   ]
 
   const pending = requests.filter(r => r.status === 'PENDING').length
@@ -526,6 +558,40 @@ export default function TransportRequests() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal isOpen={!!ratingTarget} onClose={() => setRatingTarget(null)} title="Rate This Delivery">
+        {ratingTarget && (
+          <form onSubmit={submitRating} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              {ratingTarget.transporter_name} — {ratingTarget.pickup_location} → {ratingTarget.destination}
+            </p>
+            <div>
+              <label className="label">How was the delivery?</label>
+              <div className="flex gap-1 mt-1">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button key={n} type="button" onClick={() => setRatingValue(n)}
+                    onMouseEnter={() => setRatingHover(n)} onMouseLeave={() => setRatingHover(0)}
+                    className="p-0.5 transition-transform hover:scale-110">
+                    <Star className={`w-7 h-7 transition-colors ${n <= (ratingHover || ratingValue) ? 'fill-warning-400 text-warning-400' : 'text-gray-200'}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="label">Comment (optional)</label>
+              <textarea className="input" rows={3} value={ratingComment} onChange={e => setRatingComment(e.target.value)}
+                placeholder="On time, careful handling, anything worth noting…" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setRatingTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={submittingRating} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {submittingRating && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {submittingRating ? 'Submitting…' : 'Submit Rating'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   )

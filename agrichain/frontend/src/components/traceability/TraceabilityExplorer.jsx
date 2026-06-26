@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, QrCode, MapPin, CheckCircle, Truck, Package, ShoppingCart, AlertTriangle, ChevronRight, Download } from 'lucide-react'
+import { Search, QrCode, MapPin, CheckCircle, Truck, Package, ShoppingCart, AlertTriangle, ChevronRight, Download, Thermometer } from 'lucide-react'
 import TripTrackingMap from '../map/TripTrackingMap.jsx'
 import RiskBadge from '../ui/RiskBadge.jsx'
 import { traceabilityApi } from '../../api/traceability.js'
@@ -282,6 +282,26 @@ export default function TraceabilityExplorer({
               )}
             </div>
           </div>
+
+          {iotData?.temperature_readings?.length > 0 && (() => {
+            const latest = iotData.temperature_readings[0]
+            const breachCount = iotData.temperature_readings.filter(r => r.is_breach).length
+            return (
+              <div className={`card flex items-center gap-5 ${latest.is_breach ? 'border-l-4 border-l-danger-500' : ''}`}>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${latest.is_breach ? 'bg-danger-50' : 'bg-primary-50'}`}>
+                  <Thermometer className={`w-5 h-5 ${latest.is_breach ? 'text-danger-600' : 'text-primary-600'}`} />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-base font-semibold text-gray-700">Cold-Chain Status</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Vehicle reading as of {new Date(latest.timestamp).toLocaleString()}
+                    {breachCount > 0 && <span className="text-danger-600 ml-1.5">· {breachCount} breach{breachCount > 1 ? 'es' : ''} this trip</span>}
+                  </p>
+                </div>
+                <p className={`text-2xl font-bold flex-shrink-0 ${latest.is_breach ? 'text-danger-600' : 'text-success-600'}`}>{latest.temperature_celsius}°C</p>
+              </div>
+            )
+          })()}
 
           {iotData?.route && (
             <div className="card">

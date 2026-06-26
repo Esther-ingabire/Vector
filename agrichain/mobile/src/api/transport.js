@@ -26,3 +26,6 @@ export const reportIncident = (data) =>
 
 export const getVehicleIotReadings = (tripId) =>
   client.get('/iot/vehicle/', { params: { trip: tripId } });
+
+export const postGPSUpdate = (data) =>
+  client.post('/transport/gps/', data);
