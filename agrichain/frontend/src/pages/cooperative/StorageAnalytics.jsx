@@ -102,6 +102,12 @@ export default function StorageAnalytics() {
 
   useEffect(() => { load() }, [load])
 
+  // Poll for fresh readings every 10s so breaches/temperature show up live without a manual refresh.
+  useEffect(() => {
+    const interval = setInterval(() => load(), 10000)
+    return () => clearInterval(interval)
+  }, [load])
+
   const latestByFacility = readings.reduce((acc, r) => {
     if (!acc[r.facility] || new Date(r.timestamp) > new Date(acc[r.facility].timestamp)) {
       acc[r.facility] = r

@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { Clock, MapPin, Route, UserPlus } from 'lucide-react'
+import DeclineReasonPicker from '../../components/ui/DeclineReasonPicker.jsx'
 import { transportApi } from '../../api/transport.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
@@ -13,42 +14,81 @@ const MOCK_REQUESTS = [
   { id: 6, requester_type: 'Cooperative', requester_name: 'Nyamasheke Coop',           pickup_location: 'Nyamasheke',destination: 'Kigali',              cargo_description: 'Tea',      estimated_cargo_weight_kg: '1800', required_pickup_datetime: '2026-05-10T08:00:00Z', requires_refrigeration: false },
 ]
 
-function AssignDriverPanel({ req, drivers, onAssign, assigning }) {
+// vehicles = full company fleet (all trucks, regardless of which driver registered them)
+// drivers  = all company drivers
+// Driver and truck are independent choices — any available driver + any available truck.
+function AssignDriverPanel({ req, drivers, vehicles, onAssign, assigning }) {
   const [driverId, setDriverId] = useState('')
-  const driver = drivers.find(d => String(d.id) === driverId)
   const [vehicleId, setVehicleId] = useState('')
+
+  const freeVehicles = vehicles.filter(v => v.is_active && !v.is_busy)
+  const busyVehicles = vehicles.filter(v => v.is_active &&  v.is_busy)
+  const reqId = Array.isArray(req) ? req[0]?.id : req.id
 
   return (
     <div className="border-t border-gray-100 pt-3 space-y-2.5">
-      <select className="input text-sm" value={driverId}
-        onChange={e => { setDriverId(e.target.value); setVehicleId('') }}>
-        <option value="">Select a driver…</option>
-        {drivers.map(d => (
-          <option key={d.id} value={d.id} disabled={d.has_active_trip}>
-            {d.name}{d.has_active_trip ? ' (on a trip)' : ''}
-          </option>
-        ))}
-      </select>
-      {driver?.vehicles?.length > 0 && (
-        <select className="input text-sm" value={vehicleId} onChange={e => setVehicleId(e.target.value)}>
-          <option value="">No specific truck</option>
-          {driver.vehicles.map(v => (
-            <option key={v.id} value={v.id}>{v.plate_number} — {v.vehicle_type.replace('_', ' ')}</option>
+
+      {/* Driver picker — greyed out if currently on a trip */}
+      <div>
+        <p className="text-xs font-medium text-gray-500 mb-1">Select driver</p>
+        <select className="input text-sm" value={driverId} onChange={e => setDriverId(e.target.value)}>
+          <option value="">— Choose a driver —</option>
+          {drivers.map(d => (
+            <option key={d.id} value={d.id} disabled={d.has_active_trip}>
+              {d.name}{d.has_active_trip ? ' · currently on a trip' : ''}
+            </option>
           ))}
         </select>
-      )}
+      </div>
+
+      {/* Vehicle picker — full company fleet, busy trucks shown but disabled */}
+      <div>
+        <p className="text-xs font-medium text-gray-500 mb-1">Select truck from company fleet</p>
+        {vehicles.length === 0 ? (
+          <p className="text-xs text-warning-600 bg-warning-50 rounded-lg px-3 py-2">
+            No vehicles registered in the company fleet yet. Add trucks in Fleet Management.
+          </p>
+        ) : (
+          <select className="input text-sm" value={vehicleId} onChange={e => setVehicleId(e.target.value)} required>
+            <option value="">— Choose a truck —</option>
+            {freeVehicles.map(v => (
+              <option key={v.id} value={v.id}>
+                {v.plate_number} · {v.vehicle_type.replace(/_/g, ' ')} · {Number(v.capacity_kg || 0).toLocaleString()} kg
+              </option>
+            ))}
+            {busyVehicles.length > 0 && (
+              <optgroup label="On active trip — unavailable">
+                {busyVehicles.map(v => (
+                  <option key={v.id} value={v.id} disabled>
+                    {v.plate_number} · {v.vehicle_type.replace(/_/g, ' ')} · on active trip
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        )}
+      </div>
+
       <button
         onClick={() => onAssign(req, driverId, vehicleId)}
-        disabled={!driverId || !!assigning}
+        disabled={!driverId || !vehicleId || !!assigning}
         className="w-full py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-50">
-        {assigning === req.id ? 'Assigning…' : 'Confirm Assignment'}
+        {assigning === reqId ? 'Assigning…' : 'Confirm Assignment'}
       </button>
     </div>
   )
 }
 
-function RequestCard({ req, onAction, acting, compact = false, isCompany = false, drivers = [], onAssign, assigning }) {
+const TRANSPORT_DECLINE_REASONS = [
+  'Not available on this date',
+  'Route not covered',
+  'Vehicle at capacity',
+  'Insufficient notice',
+]
+
+function RequestCard({ req, onAction, acting, compact = false, isCompany = false, drivers = [], vehicles = [], onAssign, assigning }) {
   const [showAssign, setShowAssign] = useState(false)
+  const [showDecline, setShowDecline] = useState(false)
   const pickupDate = req.required_pickup_datetime
     ? new Date(req.required_pickup_datetime).toLocaleDateString('en-RW', { month: 'short', day: 'numeric', year: 'numeric' })
     : '—'
@@ -77,48 +117,45 @@ function RequestCard({ req, onAction, acting, compact = false, isCompany = false
         )}
       </div>
 
-      {isCompany && drivers.length > 0 ? (
-        // A company with registered drivers always dispatches to a specific person/truck —
-        // there's no real-world "the company drives it" distinct from "a driver drives it."
+      {showDecline ? (
+        <DeclineReasonPicker
+          quickReasons={TRANSPORT_DECLINE_REASONS}
+          busy={acting === `${req.id}-decline`}
+          onConfirm={reason => { setShowDecline(false); onAction(req, 'decline', reason) }}
+          onCancel={() => setShowDecline(false)}
+        />
+      ) : isCompany && drivers.length > 0 ? (
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <button
-            onClick={() => setShowAssign(v => !v)}
-            disabled={!!acting}
+          <button onClick={() => setShowAssign(v => !v)} disabled={!!acting}
             className="py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5">
             <UserPlus className="w-4 h-4" /> Approve & Assign
           </button>
-          <button
-            onClick={() => onAction(req, 'decline')}
-            disabled={!!acting}
+          <button onClick={() => setShowDecline(true)} disabled={!!acting}
             className="py-2.5 rounded-xl border border-danger-400/60 text-danger-600 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm text-sm font-semibold transition-colors disabled:opacity-60">
-            {acting === `${req.id}-decline` ? 'Declining…' : 'Decline'}
+            Decline
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <button
-            onClick={() => onAction(req, 'accept')}
-            disabled={!!acting}
+          <button onClick={() => onAction(req, 'accept')} disabled={!!acting}
             className="py-2.5 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white text-sm font-semibold transition-colors disabled:opacity-60">
             {acting === `${req.id}-accept` ? 'Accepting…' : 'Accept'}
           </button>
-          <button
-            onClick={() => onAction(req, 'decline')}
-            disabled={!!acting}
+          <button onClick={() => setShowDecline(true)} disabled={!!acting}
             className="py-2.5 rounded-xl border border-danger-400/60 text-danger-600 bg-white/40 hover:bg-danger-50/80 backdrop-blur-sm text-sm font-semibold transition-colors disabled:opacity-60">
-            {acting === `${req.id}-decline` ? 'Declining…' : 'Decline'}
+            Decline
           </button>
         </div>
       )}
 
-      {isCompany && showAssign && drivers.length > 0 && (
-        <AssignDriverPanel req={req} drivers={drivers} onAssign={onAssign} assigning={assigning} />
+      {isCompany && showAssign && !showDecline && drivers.length > 0 && (
+        <AssignDriverPanel req={req} drivers={drivers} vehicles={vehicles} onAssign={onAssign} assigning={assigning} />
       )}
     </div>
   )
 }
 
-function MultiStopGroup({ stops, onAction, onBulkAction, acting, bulkActing, isCompany = false, drivers = [], onBulkAssign, assigning }) {
+function MultiStopGroup({ stops, onAction, onBulkAction, acting, bulkActing, isCompany = false, drivers = [], vehicles = [], onBulkAssign, assigning }) {
   const sorted = [...stops].sort((a, b) => (a.stop_sequence || 0) - (b.stop_sequence || 0))
   const totalWeight = sorted.reduce((sum, s) => sum + Number(s.estimated_cargo_weight_kg || 0), 0)
   const [showAssign, setShowAssign] = useState(false)
@@ -170,7 +207,7 @@ function MultiStopGroup({ stops, onAction, onBulkAction, acting, bulkActing, isC
       )}
 
       {isCompany && showAssign && drivers.length > 0 && (
-        <AssignDriverPanel req={sorted} drivers={drivers} onAssign={onBulkAssign} assigning={assigning} />
+        <AssignDriverPanel req={sorted} drivers={drivers} vehicles={vehicles} onAssign={onBulkAssign} assigning={assigning} />
       )}
     </div>
   )
@@ -179,38 +216,41 @@ function MultiStopGroup({ stops, onAction, onBulkAction, acting, bulkActing, isC
 export default function PendingRequests() {
   const { user } = useAuth()
   const isCompany = user?.role === 'TRANSPORT_COMPANY'
-  const [requests, setRequests] = useState(MOCK_REQUESTS)
+  const [requests, setRequests] = useState([])
   const [loading, setLoading]   = useState(true)
   const [acting, setActing]     = useState(null)
   const [bulkActing, setBulkActing] = useState(null)
   const [drivers, setDrivers]   = useState([])
+  const [vehicles, setVehicles] = useState([])   // full company fleet
   const [assigning, setAssigning] = useState(null)
 
   useEffect(() => {
     transportApi.getMyRequests({ status: 'PENDING' }, { _silent: true })
-      .then(res => {
-        const data = res.data?.results ?? res.data ?? []
-        if (data.length) setRequests(data)
-      })
+      .then(res => setRequests(res.data?.results ?? res.data ?? []))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
     if (!isCompany) return
-    transportApi.getMyDrivers({ _silent: true })
-      .then(res => setDrivers(res.data?.results ?? res.data ?? []))
-      .catch(() => setDrivers([]))
+    // Load both drivers and the full company vehicle fleet in parallel
+    Promise.all([
+      transportApi.getMyDrivers({ _silent: true }),
+      transportApi.getMyVehicles({ _silent: true }),
+    ]).then(([dRes, vRes]) => {
+      setDrivers(dRes.data?.results ?? dRes.data ?? [])
+      setVehicles(vRes.data?.results ?? vRes.data ?? [])
+    }).catch(() => {})
   }, [isCompany])
 
-  const handleAction = async (req, action) => {
+  const handleAction = async (req, action, reason = '') => {
     setActing(`${req.id}-${action}`)
     try {
       if (action === 'accept') {
         await transportApi.acceptRequest(req.id)
         toast.success('Request accepted')
       } else {
-        await transportApi.declineRequest(req.id, { reason: 'Not available' })
+        await transportApi.declineRequest(req.id, { reason: reason || 'Declined' })
         toast.success('Request declined')
       }
     } catch {
@@ -295,11 +335,11 @@ export default function PendingRequests() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {Object.entries(runs).map(([runId, stops]) => (
             <MultiStopGroup key={runId} stops={stops} onAction={handleAction} onBulkAction={handleBulkAction} acting={acting} bulkActing={bulkActing}
-              isCompany={isCompany} drivers={drivers} onBulkAssign={handleBulkAssign} assigning={assigning} />
+              isCompany={isCompany} drivers={drivers} vehicles={vehicles} onBulkAssign={handleBulkAssign} assigning={assigning} />
           ))}
           {standalone.map(req => (
             <RequestCard key={req.id} req={req} onAction={handleAction} acting={acting}
-              isCompany={isCompany} drivers={drivers} onAssign={handleAssign} assigning={assigning} />
+              isCompany={isCompany} drivers={drivers} vehicles={vehicles} onAssign={handleAssign} assigning={assigning} />
           ))}
         </div>
       )}

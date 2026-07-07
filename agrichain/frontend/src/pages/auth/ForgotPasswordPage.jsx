@@ -16,7 +16,7 @@ const authBg = {
 const glassInput = [
   'w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/40',
   'bg-white/10 border border-white/20',
-  'focus:outline-none focus:border-white/60 focus:ring-2 focus:ring-white/20',
+  'focus:outline-none focus:border-emerald-500/70 focus:ring-2 focus:ring-emerald-500/25',
   'transition-all backdrop-blur-sm',
 ].join(' ')
 
@@ -94,7 +94,7 @@ export default function ForgotPasswordPage() {
           </p>
         </div>
 
-        <p className="text-center text-white/30 text-xs mt-5">
+        <p className="text-center text-primary-300 text-xs mt-5 font-medium tracking-wide">
           Rwanda Agricultural Supply Chain Traceability System
         </p>
       </div>

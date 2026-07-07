@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search, Route, Star } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
+import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
+import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
 import { transportApi } from '../../api/transport.js'
 import { cooperativesApi } from '../../api/cooperatives.js'
 import toast from 'react-hot-toast'
@@ -240,7 +242,16 @@ export default function TransportRequests() {
     )},
     { key: 'required_pickup_datetime', label: 'Pickup', render: v => v ? v.split('T')[0] : '—' },
     { key: 'transporter_name', label: 'Transporter', render: v => v || <span className="text-gray-400 text-sm">—</span> },
-    { key: 'status', label: 'Status', render: v => <StatusBadge status={v} /> },
+    { key: 'status', label: 'Status', render: (v, row) => (
+      <div className="space-y-1">
+        <StatusBadge status={v} />
+        {v === 'DECLINED' && row.decline_reason && (
+          <p className="text-xs text-danger-600 bg-danger-50 rounded px-2 py-1 max-w-[180px]">
+            {row.decline_reason}
+          </p>
+        )}
+      </div>
+    )},
     { key: 'rate_action', label: '', render: (_, row) => row.status === 'COMPLETED' && (
       row.has_rating
         ? <span className="text-xs text-gray-400 flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-warning-400 text-warning-400" /> Rated</span>
@@ -443,11 +454,37 @@ export default function TransportRequests() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Pickup location</label>
-              <input className="input" value={form.pickup_location} onChange={e => setForm(f => ({ ...f, pickup_location: e.target.value }))} required placeholder="e.g. Musanze" />
+              <PlaceSearchInput
+                placeholder="Search pickup location…"
+                onSelect={({ address, lat, lng }) => setForm(f => ({
+                  ...f,
+                  pickup_location: address,
+                  pickup_gps_lat: lat,
+                  pickup_gps_lng: lng,
+                }))}
+              />
+              {form.pickup_location && (
+                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {form.pickup_location}
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Destination{extraStops.length > 0 ? ' — Stop 1' : ''}</label>
-              <input className="input" value={form.destination} onChange={e => setForm(f => ({ ...f, destination: e.target.value }))} required placeholder="e.g. Kigali" />
+              <PlaceSearchInput
+                placeholder="Search destination…"
+                onSelect={({ address, lat, lng }) => setForm(f => ({
+                  ...f,
+                  destination: address,
+                  destination_gps_lat: lat,
+                  destination_gps_lng: lng,
+                }))}
+              />
+              {form.destination && (
+                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {form.destination}
+                </p>
+              )}
             </div>
           </div>
 
@@ -506,7 +543,6 @@ export default function TransportRequests() {
             <input className="input" value={editTForm.operating_districts}
               onChange={e => setEditTForm(f => ({ ...f, operating_districts: e.target.value }))}
               placeholder="e.g. Musanze, Kigali" />
-            <p className="text-xs text-gray-400 mt-1">Comma-separated list of districts</p>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => { setShowEditTransporter(false); setEditingTransporter(null) }}

@@ -1,16 +1,16 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, AtSign, Lock } from 'lucide-react'
 import ChainSightLogo from '../../components/ui/ChainSightLogo.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
 
 const schema = z.object({
-  credential: z.string().min(1, 'Phone number or username is required'),
-  password: z.string().min(1, 'Password is required'),
+  credential: z.string().min(1, 'Phone number or email is required'),
+  password:   z.string().min(1, 'Password is required'),
 })
 
 const authBg = {
@@ -20,15 +20,6 @@ const authBg = {
   backgroundPosition: 'center',
   backgroundRepeat: 'no-repeat',
 }
-
-const glassInput = [
-  'w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/40',
-  'bg-white/10 border border-white/20',
-  'focus:outline-none focus:border-white/60 focus:ring-2 focus:ring-white/20',
-  'transition-all backdrop-blur-sm',
-].join(' ')
-
-const glassLabel = 'block text-sm font-medium text-white/80 mb-1.5'
 
 export default function LoginPage() {
   const { login } = useAuth()
@@ -66,90 +57,115 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative" style={authBg}>
-      {/* Overlay */}
       <div className="absolute inset-0 bg-black/50" />
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Glass card */}
-        <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl p-8 ring-1 ring-white/10">
 
-          {/* Logo */}
+        {/* Glass card — logo lives inside so it matches every other auth page */}
+        <div className="rounded-2xl p-8"
+          style={{
+            background: 'rgba(255,255,255,0.09)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: '1.5px solid rgba(34,139,82,0.55)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(34,139,82,0.1)',
+          }}>
+
+          {/* Logo block */}
           <div className="text-center mb-8">
-            <ChainSightLogo size={60} className="logo-hover-spin mb-4 drop-shadow-lg block mx-auto" />
+            <ChainSightLogo size={56} className="logo-hover-spin drop-shadow-lg block mx-auto mb-3" />
             <h1 className="text-2xl font-bold text-white tracking-tight">ChainSight</h1>
-            <p className="text-white/50 mt-1 text-sm">Supply Chain Analytics System</p>
+            <p className="text-white/45 mt-1 text-xs tracking-wide">Supply Chain Analytics System</p>
           </div>
 
-          <h2 className="text-lg font-semibold text-white mb-1">Sign in to your account</h2>
-          <p className="text-sm text-white/50 mb-6">Use your phone number or username and password.</p>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            {/* ── Credential field ── */}
             <div>
-              <label className={glassLabel}>Phone number or username</label>
-              <input
-                {...register('credential')}
-                className={glassInput}
-                placeholder="+250 7XX XXX XXX"
-                autoComplete="username"
-              />
-              {errors.credential && <p className="text-red-300 text-xs mt-1">{errors.credential.message}</p>}
+              <div className="relative">
+                <AtSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
+                <input
+                  {...register('credential')}
+                  placeholder="Phone or email"
+                  autoComplete="email"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/35 bg-white/8 transition-all focus:outline-none"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)' }}
+                  onFocus={e  => { e.target.style.borderColor = 'rgba(52,211,153,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(52,211,153,0.12)' }}
+                  onBlur={e   => { e.target.style.borderColor = 'rgba(255,255,255,0.15)'; e.target.style.boxShadow = 'none' }}
+                />
+              </div>
+              {errors.credential && (
+                <p className="text-red-400 text-xs mt-1.5 ml-1">{errors.credential.message}</p>
+              )}
             </div>
 
+            {/* ── Password field ── */}
             <div>
-              <label className={glassLabel}>Password</label>
               <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 pointer-events-none" />
                 <input
                   {...register('password')}
                   type={showPass ? 'text' : 'password'}
-                  className={`${glassInput} pr-10`}
-                  placeholder="Enter your password"
+                  placeholder="Password"
                   autoComplete="current-password"
+                  className="w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-white/35 transition-all focus:outline-none"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)' }}
+                  onFocus={e  => { e.target.style.borderColor = 'rgba(52,211,153,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(52,211,153,0.12)' }}
+                  onBlur={e   => { e.target.style.borderColor = 'rgba(255,255,255,0.15)'; e.target.style.boxShadow = 'none' }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
-                >
+                <button type="button" onClick={() => setShowPass(v => !v)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/70 transition-colors">
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {errors.password && <p className="text-red-300 text-xs mt-1">{errors.password.message}</p>}
+              {errors.password && (
+                <p className="text-red-400 text-xs mt-1.5 ml-1">{errors.password.message}</p>
+              )}
             </div>
 
-            {/* Primary CTA — solid green so it reads as the main action */}
+            {/* ── Forgot password inline ── */}
+            <div className="flex justify-end">
+              <Link to="/forgot-password"
+                className="text-xs text-emerald-300/80 hover:text-emerald-300 transition-colors">
+                Forgot password?
+              </Link>
+            </div>
+
+            {/* ── Submit ── */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-emerald-600/85 hover:bg-emerald-600 active:bg-emerald-700 border border-emerald-500/40 backdrop-blur-sm shadow-lg shadow-emerald-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl font-semibold text-sm text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-1"
+              style={{
+                background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                boxShadow: '0 4px 20px rgba(22,163,74,0.30)',
+              }}
             >
-              {loading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading
+                ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Signing in…</>
+                : 'Sign in'
+              }
             </button>
           </form>
 
-          {/* Links */}
-          <div className="mt-6 pt-5 border-t border-white/15 space-y-2.5 text-center">
-            <p className="text-sm text-white/50">
-              <Link to="/forgot-password" className="text-emerald-300 hover:text-emerald-200 font-medium transition-colors">
-                Forgot your password?
+          {/* ── Bottom links ── */}
+          <div className="mt-6 pt-5 border-t border-white/10 space-y-2 text-center text-xs text-white/40">
+            <p>
+              First time?{' '}
+              <Link to="/verify-otp" className="text-emerald-300/80 hover:text-emerald-300 transition-colors">
+                Enter activation code
               </Link>
             </p>
-            <p className="text-sm text-white/50">
-              First time logging in?{' '}
-              <Link to="/verify-otp" className="text-emerald-300 hover:text-emerald-200 font-medium transition-colors">
-                Enter your activation code
-              </Link>
-            </p>
-            <p className="text-sm text-white/50">
-              Don't have an account?{' '}
-              <Link to="/request-access" className="text-emerald-300 hover:text-emerald-200 font-medium transition-colors">
+            <p>
+              No account?{' '}
+              <Link to="/request-access" className="text-emerald-300/80 hover:text-emerald-300 transition-colors">
                 Request access
               </Link>
             </p>
           </div>
         </div>
 
-        <p className="text-center text-white/30 text-xs mt-5">
+        <p className="text-center text-primary-300 text-xs mt-5 font-medium tracking-wide">
           Rwanda Agricultural Supply Chain Traceability System
         </p>
       </div>

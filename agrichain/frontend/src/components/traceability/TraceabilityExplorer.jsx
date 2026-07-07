@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { Search, QrCode, MapPin, CheckCircle, Truck, Package, ShoppingCart, AlertTriangle, ChevronRight, Download, Thermometer } from 'lucide-react'
 import TripTrackingMap from '../map/TripTrackingMap.jsx'
 import RiskBadge from '../ui/RiskBadge.jsx'
 import { traceabilityApi } from '../../api/traceability.js'
+import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
 
 // Phase 1 risk score — same ≥10% "high-risk" convention already used on the MINAGRI dashboard.
@@ -21,9 +22,15 @@ const MOCK_BATCHES = [
 ]
 
 // Build supply chain timeline from full batch data
+// Covers all five stages: Cooperative → Leg 1 Transit → Distributor → Leg 2 Transit → Market
 function buildTimeline(batch) {
   const status = batch.current_status
+  const hasLeg2 = !!(batch.transport_request_leg2)
+  const leg2Active   = ['IN_TRANSIT_LEG2', 'AT_MARKET', 'COMPLETED'].includes(status)
+  const marketDone   = ['AT_MARKET', 'COMPLETED'].includes(status)
+
   const steps = [
+    // ── Stage 1: Cooperative dispatch ───────────────────────────────────
     {
       step: 'Dispatched from Cooperative',
       date: batch.dispatch_timestamp?.split('T')[0],
@@ -32,34 +39,65 @@ function buildTimeline(batch) {
       status: 'done',
       icon: 'dispatch',
     },
+    // ── Stage 2: Leg 1 — Cooperative to Distributor ─────────────────────
     {
       step: 'In Transit — Leg 1',
       date: null,
       location: 'En route to distributor',
       detail: batch.transport_request_leg1
         ? `Transport request #${batch.transport_request_leg1}`
-        : 'No transport assigned',
-      status: status === 'AT_COOPERATIVE' ? 'pending' : status === 'IN_TRANSIT_LEG1' ? 'active' : 'done',
+        : 'No transporter assigned for this leg',
+      status: status === 'AT_COOPERATIVE' ? 'pending'
+            : status === 'IN_TRANSIT_LEG1' ? 'active'
+            : 'done',
       icon: 'transit',
     },
+    // ── Stage 3: Distributor receipt ─────────────────────────────────────
     {
       step: 'Received by Distributor',
       date: batch.distributor_receipt_timestamp?.split('T')[0],
-      location: 'Distributor warehouse',
+      location: batch.distributor_name || 'Distributor warehouse',
       detail: batch.weight_at_distributor_kg
-        ? `Received: ${Number(batch.weight_at_distributor_kg).toLocaleString()} kg · Grade ${batch.quality_at_distributor || '—'}`
+        ? `Received: ${Number(batch.weight_at_distributor_kg).toLocaleString()} kg · Grade ${batch.quality_at_distributor || '—'} · Transit loss: ${batch.transit_loss_leg1_pct ?? 0}%`
         : 'Awaiting receipt confirmation',
       status: ['AT_DISTRIBUTOR', 'IN_TRANSIT_LEG2', 'AT_MARKET', 'COMPLETED'].includes(status) ? 'done' : 'pending',
       icon: 'delivered',
     },
+    // ── Stage 4: Leg 2 — Distributor to Market Agent (only if applicable) ─
     {
-      step: 'At Market',
+      step: 'In Transit — Leg 2',
       date: null,
-      location: 'Market stall',
-      detail: ['AT_MARKET', 'COMPLETED'].includes(status)
-        ? `At market — ${batch.total_loss_pct ?? 0}% total loss recorded`
-        : 'Awaiting delivery to market',
-      status: ['AT_MARKET', 'COMPLETED'].includes(status) ? 'done' : 'pending',
+      location: hasLeg2 ? 'En route to market agent' : 'Market agent self-collected',
+      detail: hasLeg2
+        ? (batch.transport_request_leg2
+            ? `Transport request #${batch.transport_request_leg2}`
+            : 'Transport arranged by distributor')
+        : 'Market agent collected directly from distributor warehouse',
+      status: !['IN_TRANSIT_LEG2', 'AT_MARKET', 'COMPLETED'].includes(status)
+            ? 'pending'
+            : status === 'IN_TRANSIT_LEG2' ? 'active'
+            : 'done',
+      icon: 'transit',
+    },
+    // ── Stage 5: Market agent receipt & retail ────────────────────────────
+    {
+      step: marketDone ? 'Received at Market' : 'At Market',
+      date: batch.market_receipt_timestamp?.split('T')[0] || null,
+      location: batch.market_agent_name ? `${batch.market_agent_name}'s stall` : 'Market stall',
+      detail: marketDone
+        ? [
+            batch.weight_at_market_kg
+              ? `Received: ${Number(batch.weight_at_market_kg).toLocaleString()} kg`
+              : null,
+            batch.market_spoilage_loss_pct != null
+              ? `Market spoilage: ${batch.market_spoilage_loss_pct}%`
+              : null,
+            batch.total_loss_pct != null
+              ? `Total end-to-end loss: ${batch.total_loss_pct}%`
+              : null,
+          ].filter(Boolean).join(' · ') || 'At market'
+        : 'Awaiting delivery to market agent',
+      status: marketDone ? 'done' : 'pending',
       icon: 'market',
     },
   ]
@@ -98,7 +136,9 @@ export default function TraceabilityExplorer({
   listTitle = 'Your batches',
   emptyListMessage = 'No batches yet',
   emptyListSubtext = '',
+  initialBatch = null,   // if set, auto-opens this batch immediately on mount
 }) {
+  const { user } = useAuth()
   const [batches, setBatches] = useState(MOCK_BATCHES)
   const [loadingBatches, setLoadingBatches] = useState(true)
 
@@ -136,7 +176,14 @@ export default function TraceabilityExplorer({
   useEffect(() => {
     setIotData(null)
     if (!batch) return
-    traceabilityApi.getBatchIoT(batch.id).then(res => setIotData(res.data)).catch(() => {})
+    const fetchIot = () => traceabilityApi.getBatchIoT(batch.id).then(res => setIotData(res.data)).catch(() => {})
+    // Also re-fetch the batch itself so current_status stays live
+    // (e.g. transporter confirms delivery → IN_TRANSIT_LEG1 → AT_DISTRIBUTOR without page reload)
+    const refreshBatch = () => traceabilityApi.getBatch(batch.id, { _silent: true })
+      .then(res => setBatch(res.data)).catch(() => {})
+    fetchIot()
+    const interval = setInterval(() => { fetchIot(); refreshBatch() }, 10000)
+    return () => clearInterval(interval)
   }, [batch?.id])
 
   const openBatch = async (item) => {
@@ -151,6 +198,10 @@ export default function TraceabilityExplorer({
       setBatch(item)
     }
   }
+
+  // Auto-open a batch passed in from the parent (e.g. "View route on map" from Active Batches).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialBatch) openBatch(initialBatch) }, [initialBatch?.id])
 
   // Deep link from a notification (e.g. a transporter's incident report) — ?batch=<id>
   // opens that batch directly instead of landing on the plain list.
@@ -167,6 +218,19 @@ export default function TraceabilityExplorer({
     e.preventDefault()
     const q = query.trim()
     if (!q) return
+
+    // 1. Search the already-loaded batch list by crop name, cooperative name, or short ID first.
+    //    This avoids sending a crop name (e.g. "Bananas") to the UUID-only QR lookup endpoint.
+    const lower = q.toLowerCase()
+    const localMatch = batches.find(b =>
+      (b.crop_name || '').toLowerCase().includes(lower) ||
+      (b.cooperative_name || '').toLowerCase().includes(lower) ||
+      (b.batch_id_short || '').toLowerCase().startsWith(lower) ||
+      (String(b.id) === q)
+    )
+    if (localMatch) { openBatch(localMatch); return }
+
+    // 2. Fall back to QR/UUID lookup (for scanning or pasting a full batch UUID)
     setSearching(true)
     setBatch(null)
     setNotFound(false)
@@ -175,7 +239,7 @@ export default function TraceabilityExplorer({
       setBatch(res.data)
     } catch (err) {
       if (err.response?.status === 404) setNotFound(true)
-      else toast.error('Search failed')
+      else setNotFound(true) // treat any API error as "not found" for this search
     } finally {
       setSearching(false)
     }
@@ -205,7 +269,7 @@ export default function TraceabilityExplorer({
             className="input pl-9"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search by batch ID or UUID…"
+            placeholder="Search by crop, cooperative, or batch ID…"
           />
         </div>
         <button type="submit" disabled={searching} className="btn-primary flex items-center gap-2 px-5 disabled:opacity-60">
@@ -357,6 +421,31 @@ export default function TraceabilityExplorer({
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Distributor: Confirm Receipt CTA when produce has arrived */}
+          {user?.role === 'DISTRIBUTOR' && batch?.current_status === 'AT_DISTRIBUTOR' && (
+            <div className="card border-2 border-primary-200 bg-primary-50/40 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-primary-700">This batch has arrived at your facility</p>
+                <p className="text-xs text-primary-600 mt-0.5">Record the received weight and quality to complete the handover.</p>
+              </div>
+              <Link
+                to="/distributor/deliveries"
+                className="btn-primary flex-shrink-0 flex items-center gap-2 text-sm px-4 py-2">
+                <CheckCircle className="w-4 h-4" /> Confirm Receipt
+              </Link>
+            </div>
+          )}
+
+          {/* Distributor: still in transit — prompt to come back when it arrives */}
+          {user?.role === 'DISTRIBUTOR' && batch?.current_status === 'IN_TRANSIT_LEG1' && (
+            <div className="card border border-blue-200 bg-blue-50/40">
+              <p className="text-xs text-blue-600 font-medium">
+                Batch is still in transit. The map above shows its current position.
+                Once it arrives, return here and click Confirm Receipt to record the handover.
+              </p>
             </div>
           )}
 

@@ -33,6 +33,7 @@ export const distributionApi = {
 
   // My Fleet — drivers the distributor owns and registers directly (no Transport Company in between)
   registerOwnDriver: (data) => apiClient.post('/distribution/register-own-driver/', data),
+  getMyProfile: (config) => apiClient.get('/distribution/distributors/my/', config),
   getMyFleet: (config) => apiClient.get('/distribution/distributors/my-fleet/', config),
   getFleetMonitoring: (config) => apiClient.get('/distribution/distributors/fleet-monitoring/', config),
 
