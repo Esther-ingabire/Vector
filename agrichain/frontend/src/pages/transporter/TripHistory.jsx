@@ -26,14 +26,14 @@ function normaliseTrip(t) {
 }
 
 export default function TripHistory() {
-  const [trips, setTrips]     = useState(MOCK_TRIPS)
+  const [trips, setTrips]     = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     transportApi.getMyTripHistory({ _silent: true })
       .then(res => {
         const data = res.data?.results ?? res.data ?? []
-        if (data.length) setTrips(data.map(normaliseTrip))
+        setTrips(data.map(normaliseTrip))
       })
       .catch(() => {})
       .finally(() => setLoading(false))

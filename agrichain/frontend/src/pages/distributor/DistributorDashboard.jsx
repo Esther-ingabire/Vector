@@ -3,38 +3,75 @@ import { ShoppingCart, Truck, Package, TrendingDown, Search, ChevronRight, Bell 
 import { Link, useNavigate } from 'react-router-dom'
 import { distributionApi } from '../../api/distribution.js'
 import { cooperativesApi } from '../../api/cooperatives.js'
+import { traceabilityApi } from '../../api/traceability.js'
 
-const CROP_IMAGES = {
-  coffee:          'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=160&fit=crop',
-  tea:             'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=160&fit=crop',
-  maize:           'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=160&fit=crop',
-  corn:            'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=160&fit=crop',
-  potatoes:        'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=160&fit=crop',
-  'sweet potatoes':'https://images.unsplash.com/photo-1518977822534-7049a61ee0c2?w=400&h=160&fit=crop',
-  beans:           'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=160&fit=crop',
-  avocados:        'https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=160&fit=crop',
-  tomatoes:        'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=160&fit=crop',
-  bananas:         'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=160&fit=crop',
-  sorghum:         'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=400&h=160&fit=crop',
+const CROP_POOLS = {
+  maize:            ['https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&h=160&fit=crop'],
+  corn:             ['https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&h=160&fit=crop'],
+  tomatoes:         ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1561136594-7f68813d8f56?w=400&h=160&fit=crop'],
+  tomato:           ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1561136594-7f68813d8f56?w=400&h=160&fit=crop'],
+  potatoes:         ['https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1585164279323-bc69a7a60db6?w=400&h=160&fit=crop'],
+  'sweet potatoes': ['https://images.unsplash.com/photo-1508702438698-8a7d24e2f90e?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1596097635121-14b63b7a0c19?w=400&h=160&fit=crop'],
+  beans:            ['https://images.unsplash.com/photo-1506976785307-8732e854ad03?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=160&fit=crop'],
+  avocados:         ['https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=400&h=160&fit=crop'],
+  avocado:          ['https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=400&h=160&fit=crop'],
+  bananas:          ['https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1528825871115-3581a5387919?w=400&h=160&fit=crop'],
+  banana:           ['https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1528825871115-3581a5387919?w=400&h=160&fit=crop'],
+  coffee:           ['https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400&h=160&fit=crop'],
+  tea:              ['https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400&h=160&fit=crop'],
+  sorghum:          ['https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=160&fit=crop'],
+  rice:             ['https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400&h=160&fit=crop'],
+  cassava:          ['https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=400&h=160&fit=crop',
+                     'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=160&fit=crop'],
 }
 
-// Diverse fallbacks — picked by coop ID so every card looks different
 const FALLBACK_IMAGES = [
-  'https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&h=160&fit=crop', // vegetables market
-  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=160&fit=crop', // farm landscape
-  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=160&fit=crop', // colorful produce
-  'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=400&h=160&fit=crop', // market baskets
-  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=160&fit=crop', // harvest field
-  'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=160&fit=crop', // tropical fruits
+  'https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1493770348161-369560ae357d?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=400&h=160&fit=crop',
+  'https://images.unsplash.com/photo-1435373996065-9a5e9e8e5e4f?w=400&h=160&fit=crop',
 ]
+
+const PRIMARY_CROP_OVERRIDE = {
+  101: 'coffee',   // Rubavu Farmers Union — Coffee, Bananas
+}
 
 function getCropImage(crops = [], coopId = 0) {
   const list = typeof crops === 'string'
     ? crops.split(',').map(s => s.trim())
-    : crops
+    : (Array.isArray(crops) ? crops : [])
+
+  const forcedKey = PRIMARY_CROP_OVERRIDE[coopId]
+  if (forcedKey) {
+    const pool = CROP_POOLS[forcedKey]
+      || CROP_POOLS[Object.keys(CROP_POOLS).find(k => forcedKey.includes(k) || k.includes(forcedKey))]
+    if (pool) return pool[Math.abs(coopId) % pool.length]
+  }
+
   for (const c of list) {
-    const img = CROP_IMAGES[(c || '').toLowerCase()]
-    if (img) return img
+    const key = (c?.name || c || '').toLowerCase().trim()
+    const pool = CROP_POOLS[key]
+      || CROP_POOLS[Object.keys(CROP_POOLS).find(k => key.includes(k) || k.includes(key))]
+    if (pool) return pool[Math.abs(coopId) % pool.length]
   }
   return FALLBACK_IMAGES[Math.abs(coopId) % FALLBACK_IMAGES.length]
 }
@@ -53,7 +90,8 @@ export default function DistributorDashboard() {
       cooperativesApi.searchDirectory({}),
       distributionApi.getMyProduceRequests({}),
       distributionApi.getMyOrders({}),
-    ]).then(([coopRes, reqRes, ordRes]) => {
+      traceabilityApi.getBatches(),
+    ]).then(([coopRes, reqRes, ordRes, batchRes]) => {
       const coopList = coopRes.status === 'fulfilled' ? (coopRes.value.data?.results ?? coopRes.value.data ?? []) : []
       setCoops(coopList.slice(0, 3))
 
@@ -62,6 +100,27 @@ export default function DistributorDashboard() {
 
       const orders = ordRes.status === 'fulfilled' ? (ordRes.value.data?.results ?? ordRes.value.data ?? []) : []
       setPendingAgentOrders(orders.filter(o => o.status === 'PENDING').length)
+
+      // Incoming deliveries — batches in transit to or already received by this distributor
+      const batches = batchRes.status === 'fulfilled' ? (batchRes.value.data?.results ?? batchRes.value.data ?? []) : []
+      const incoming = batches
+        .filter(b => ['IN_TRANSIT_LEG1', 'AT_DISTRIBUTOR'].includes(b.current_status))
+        .map(b => ({
+          id:          b.batch_id_short || String(b.id).slice(0, 8).toUpperCase(),
+          cooperative: b.cooperative_name || '—',
+          crop:        b.crop_name || '—',
+          shipped_qty: b.dispatch_weight_kg
+            ? `${Number(b.dispatch_weight_kg).toLocaleString()} kg`
+            : '—',
+          eta: b.dispatch_timestamp
+            ? new Date(new Date(b.dispatch_timestamp).getTime() + 2 * 24 * 60 * 60 * 1000)
+                .toLocaleDateString('en-RW', { month: 'short', day: 'numeric' })
+            : '—',
+          status: b.current_status,
+          batch_id: b.id,
+        }))
+      setDeliveries(incoming.slice(0, 5))
+      setStats(s => ({ ...s, pending_deliveries: incoming.filter(b => b.status === 'IN_TRANSIT_LEG1').length }))
     }).finally(() => setLoading(false))
   }, [])
 
@@ -195,10 +254,24 @@ export default function DistributorDashboard() {
                 <td className="px-6 py-4 text-gray-700">{d.shipped_qty}</td>
                 <td className="px-6 py-4 text-gray-500">{d.eta}</td>
                 <td className="px-6 py-4">
-                  <Link to="/distributor/deliveries"
-                    className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
-                    Confirm Receipt
-                  </Link>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mr-3 ${
+                    d.status === 'AT_DISTRIBUTOR'
+                      ? 'bg-success-50 text-success-700'
+                      : 'bg-blue-50 text-blue-700'
+                  }`}>
+                    {d.status === 'AT_DISTRIBUTOR' ? 'Arrived' : 'In Transit'}
+                  </span>
+                  {d.status === 'AT_DISTRIBUTOR' ? (
+                    <Link to="/distributor/deliveries"
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 transition-colors">
+                      Confirm Receipt
+                    </Link>
+                  ) : (
+                    <Link to={`/distributor/traceability?batch=${d.batch_id}`}
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-semibold text-primary-600 border border-primary-300 hover:bg-primary-50 transition-colors">
+                      Track on map
+                    </Link>
+                  )}
                 </td>
               </tr>
             ))}

@@ -15,6 +15,62 @@ const MOCK_STOCK = [
 
 const BLANK_FORM = { crop: '', quantity_kg: '', quality_grade: 'A', harvest_date: '', available_from: '', notes: '' }
 
+// Defined outside StockManagement so its identity stays stable across re-renders — defining
+// this inline inside the component body would create a brand new function on every keystroke
+// (since typing triggers a parent re-render), causing React to remount the <input>/<textarea>
+// elements each time and lose focus/cursor position after a single character.
+const StockForm = ({ values, onChange, crops, isEdit = false }) => (
+  <>
+    {!isEdit && (
+      <div>
+        <label className="label">Crop *</label>
+        {crops.length > 0 ? (
+          <select className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required>
+            <option value="">Select crop…</option>
+            {crops.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        ) : (
+          <input className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required placeholder="Enter crop name" />
+        )}
+      </div>
+    )}
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="label">Quantity (kg) *</label>
+        <input type="number" className="input" value={values.quantity_kg} onChange={e => onChange('quantity_kg', e.target.value)} required min="1" />
+      </div>
+      <div>
+        <label className="label">Quality grade *</label>
+        <select className="input" value={values.quality_grade} onChange={e => onChange('quality_grade', e.target.value)}>
+          <option value="A">Grade A — Premium</option>
+          <option value="B">Grade B — Standard</option>
+          <option value="C">Grade C — Below standard</option>
+        </select>
+      </div>
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="label">Harvest date *</label>
+        <input type="date" className="input" value={values.harvest_date} onChange={e => onChange('harvest_date', e.target.value)} required />
+      </div>
+      <div>
+        <label className="label">Available from *</label>
+        <input type="date" className="input" value={values.available_from} onChange={e => onChange('available_from', e.target.value)} required />
+      </div>
+    </div>
+    {isEdit && (
+      <div className="flex items-center gap-3">
+        <input type="checkbox" id="is_available_edit" checked={values.is_available} onChange={e => onChange('is_available', e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-[#0b2b18]" />
+        <label htmlFor="is_available_edit" className="text-sm font-medium text-gray-700">Mark as available for distributor requests</label>
+      </div>
+    )}
+    <div>
+      <label className="label">Notes (optional)</label>
+      <textarea className="input" rows={2} value={values.notes} onChange={e => onChange('notes', e.target.value)} placeholder="e.g. Roma variety, harvested from sector 3" />
+    </div>
+  </>
+)
+
 export default function StockManagement() {
   const [stock, setStock] = useState(MOCK_STOCK)
   const [crops, setCrops] = useState([])
@@ -164,58 +220,6 @@ export default function StockManagement() {
     )},
   ]
 
-  const StockForm = ({ values, onChange, isEdit = false }) => (
-    <>
-      {!isEdit && (
-        <div>
-          <label className="label">Crop *</label>
-          {crops.length > 0 ? (
-            <select className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required>
-              <option value="">Select crop…</option>
-              {crops.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          ) : (
-            <input className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required placeholder="Enter crop name" />
-          )}
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Quantity (kg) *</label>
-          <input type="number" className="input" value={values.quantity_kg} onChange={e => onChange('quantity_kg', e.target.value)} required min="1" />
-        </div>
-        <div>
-          <label className="label">Quality grade *</label>
-          <select className="input" value={values.quality_grade} onChange={e => onChange('quality_grade', e.target.value)}>
-            <option value="A">Grade A — Premium</option>
-            <option value="B">Grade B — Standard</option>
-            <option value="C">Grade C — Below standard</option>
-          </select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Harvest date *</label>
-          <input type="date" className="input" value={values.harvest_date} onChange={e => onChange('harvest_date', e.target.value)} required />
-        </div>
-        <div>
-          <label className="label">Available from *</label>
-          <input type="date" className="input" value={values.available_from} onChange={e => onChange('available_from', e.target.value)} required />
-        </div>
-      </div>
-      {isEdit && (
-        <div className="flex items-center gap-3">
-          <input type="checkbox" id="is_available_edit" checked={values.is_available} onChange={e => onChange('is_available', e.target.checked)} className="w-4 h-4 rounded border-gray-300 accent-[#0b2b18]" />
-          <label htmlFor="is_available_edit" className="text-sm font-medium text-gray-700">Mark as available for distributor requests</label>
-        </div>
-      )}
-      <div>
-        <label className="label">Notes (optional)</label>
-        <textarea className="input" rows={2} value={values.notes} onChange={e => onChange('notes', e.target.value)} placeholder="e.g. Roma variety, harvested from sector 3" />
-      </div>
-    </>
-  )
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -259,7 +263,7 @@ export default function StockManagement() {
       {/* Add modal */}
       <Modal isOpen={showAdd} onClose={() => { setShowAdd(false); setForm(BLANK_FORM) }} title="Add Stock Record">
         <form onSubmit={handleAdd} className="space-y-4">
-          <StockForm values={form} onChange={(k, v) => setForm(f => ({ ...f, [k]: v }))} />
+          <StockForm values={form} onChange={(k, v) => setForm(f => ({ ...f, [k]: v }))} crops={crops} />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => { setShowAdd(false); setForm(BLANK_FORM) }} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60">
@@ -272,7 +276,7 @@ export default function StockManagement() {
       {/* Edit modal */}
       <Modal isOpen={showEdit} onClose={() => { setShowEdit(false); setEditingItem(null) }} title={`Edit — ${editingItem?.crop_name || 'Stock Record'}`}>
         <form onSubmit={handleEdit} className="space-y-4">
-          <StockForm values={editForm} onChange={(k, v) => setEditForm(f => ({ ...f, [k]: v }))} isEdit />
+          <StockForm values={editForm} onChange={(k, v) => setEditForm(f => ({ ...f, [k]: v }))} crops={crops} isEdit />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => { setShowEdit(false); setEditingItem(null) }} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60">

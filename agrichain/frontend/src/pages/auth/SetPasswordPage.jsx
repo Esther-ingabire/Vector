@@ -1,11 +1,12 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, CheckCircle } from 'lucide-react'
+import { Eye, EyeOff, Check, ArrowRight } from 'lucide-react'
 import { authApi } from '../../api/auth.js'
 import { useAuth } from '../../context/AuthContext.jsx'
+import ChainSightLogo from '../../components/ui/ChainSightLogo.jsx'
 import toast from 'react-hot-toast'
 
 const schema = z.object({
@@ -20,34 +21,24 @@ const schema = z.object({
 })
 
 const reqs = [
-  { label: 'At least 8 characters', test: v => v.length >= 8 },
-  { label: 'One uppercase letter',  test: v => /[A-Z]/.test(v) },
-  { label: 'One number',            test: v => /[0-9]/.test(v) },
+  { label: '8+ characters', test: v => v.length >= 8 },
+  { label: 'Uppercase',     test: v => /[A-Z]/.test(v) },
+  { label: 'Number',        test: v => /[0-9]/.test(v) },
 ]
 
 const authBg = {
   backgroundImage: "url('/images/auth-bg.jpg')",
-  backgroundColor: '#1b4332',
+  backgroundColor: '#0b2b18',
   backgroundSize: 'cover',
   backgroundPosition: 'center',
   backgroundRepeat: 'no-repeat',
 }
-
-const glassInput = [
-  'w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-white/40',
-  'bg-white/10 border border-white/20',
-  'focus:outline-none focus:border-white/60 focus:ring-2 focus:ring-white/20',
-  'transition-all backdrop-blur-sm',
-].join(' ')
-
-const glassLabel = 'block text-sm font-medium text-white/80 mb-1.5'
 
 export default function SetPasswordPage() {
   const { user: authUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const isReset = location.state?.isReset
-  // After OTP verification, authUser may not be set yet — use the state passed from OTPPage
   const user = authUser || location.state?.user
   const [showNew, setShowNew] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -57,18 +48,14 @@ export default function SetPasswordPage() {
     resolver: zodResolver(schema),
   })
   const passValue = watch('new_password', '')
+  const allMet = reqs.every(r => r.test(passValue))
 
   const onSubmit = async (data) => {
     setLoading(true)
     try {
       await authApi.setPassword({ new_password: data.new_password, confirm_password: data.confirm_password })
-      if (isReset) {
-        toast.success('Password reset! Please log in with your new password.')
-        navigate('/login')
-      } else {
-        toast.success('Password set! Please log in to continue.')
-        navigate('/login')
-      }
+      toast.success(isReset ? 'Password reset! Please log in.' : 'Password set! Welcome to ChainSight.')
+      navigate('/login')
     } catch {
       toast.error('Failed to set password. Please try again.')
     } finally {
@@ -78,85 +65,162 @@ export default function SetPasswordPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 relative" style={authBg}>
-      <div className="absolute inset-0 bg-black/50" />
+      {/* layered overlay: deep dark base + subtle green tint at bottom */}
+      <div className="absolute inset-0" style={{ background: 'linear-gradient(160deg, rgba(0,0,0,0.62) 0%, rgba(11,43,24,0.70) 100%)' }} />
 
-      <div className="relative z-10 w-full max-w-md">
-        <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl p-8 ring-1 ring-white/10">
+      <div className="relative z-10 w-full max-w-[420px]">
 
-          {/* Icon + heading */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/15 border border-white/25 backdrop-blur-sm mb-4">
-              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Set your password</h1>
-            <p className="text-white/50 mt-1 text-sm">Welcome to ChainSight — create a secure password to continue.</p>
-          </div>
-
-          <p className="text-sm text-white/60 mb-6">
-            {user?.first_name ? `Hi ${user.first_name} — ` : ''}Create a password to finish setting up your account.
-          </p>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-            <div>
-              <label className={glassLabel}>New password</label>
-              <div className="relative">
-                <input
-                  {...register('new_password')}
-                  type={showNew ? 'text' : 'password'}
-                  className={`${glassInput} pr-10`}
-                  placeholder="Create a strong password"
-                  autoComplete="new-password"
-                />
-                <button type="button" onClick={() => setShowNew(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors">
-                  {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {errors.new_password && <p className="text-red-300 text-xs mt-1">{errors.new_password.message}</p>}
-
-              {/* Strength indicators */}
-              <div className="mt-3 space-y-1.5">
-                {reqs.map(req => (
-                  <div key={req.label} className={`flex items-center gap-2 text-xs transition-colors ${req.test(passValue) ? 'text-emerald-300' : 'text-white/35'}`}>
-                    <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                    {req.label}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className={glassLabel}>Confirm password</label>
-              <div className="relative">
-                <input
-                  {...register('confirm_password')}
-                  type={showConfirm ? 'text' : 'password'}
-                  className={`${glassInput} pr-10`}
-                  placeholder="Repeat your password"
-                  autoComplete="new-password"
-                />
-                <button type="button" onClick={() => setShowConfirm(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors">
-                  {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {errors.confirm_password && <p className="text-red-300 text-xs mt-1">{errors.confirm_password.message}</p>}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-emerald-600/85 hover:bg-emerald-600 active:bg-emerald-700 border border-emerald-500/40 backdrop-blur-sm shadow-lg shadow-emerald-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {loading ? 'Setting password…' : 'Set password & continue'}
-            </button>
-          </form>
+        {/* ── Brand identity above the card ── */}
+        <div className="flex flex-col items-center gap-2 mb-7">
+          <ChainSightLogo size={48} />
+          <span className="text-white font-bold text-lg tracking-tight">ChainSight</span>
         </div>
 
-        <p className="text-center text-white/30 text-xs mt-5">
+        {/* ── Glass card ── */}
+        <div className="rounded-2xl shadow-2xl"
+          style={{
+            background: 'rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: '1.5px solid rgba(34,139,82,0.65)',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(34,139,82,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
+          }}>
+
+          <div className="p-8">
+
+            {/* context pill */}
+            <div className="flex justify-center mb-6">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                style={{ background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.25)', color: '#86efac' }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {isReset ? 'Password Reset' : 'Account Activation'}
+              </span>
+            </div>
+
+            {/* heading */}
+            <div className="text-center mb-7">
+              <h1 className="text-2xl font-bold text-white tracking-tight">
+                {isReset ? 'Create a new password' : 'Set your password'}
+              </h1>
+              <p className="text-white/50 text-sm mt-2 leading-relaxed">
+                {user?.first_name
+                  ? <>Hi <span className="text-white/75 font-medium">{user.first_name}</span> — create a secure password to activate your account.</>
+                  : 'Create a secure password to activate your account.'}
+              </p>
+            </div>
+
+            {/* thin separator */}
+            <div className="h-px mb-7" style={{ background: 'rgba(255,255,255,0.08)' }} />
+
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
+              {/* new password */}
+              <div>
+                <label className="block text-xs font-semibold text-white/60 uppercase tracking-wider mb-2">
+                  New password
+                </label>
+                <div className="relative">
+                  <input
+                    {...register('new_password')}
+                    type={showNew ? 'text' : 'password'}
+                    placeholder="Create a strong password"
+                    autoComplete="new-password"
+                    className="w-full px-4 py-3 pr-11 rounded-xl text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/60 transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.14)',
+                    }}
+                  />
+                  <button type="button" onClick={() => setShowNew(v => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/70 transition-colors">
+                    {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {errors.new_password && (
+                  <p className="text-red-400 text-xs mt-2 flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-red-400 flex-shrink-0" />
+                    {errors.new_password.message}
+                  </p>
+                )}
+
+                {/* requirement pills — turn green as each rule is met */}
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  {reqs.map(req => {
+                    const met = req.test(passValue)
+                    return (
+                      <span key={req.label}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-300"
+                        style={met
+                          ? { background: 'rgba(74,222,128,0.18)', border: '1px solid rgba(74,222,128,0.4)', color: '#86efac' }
+                          : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.35)' }
+                        }>
+                        <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-300"
+                          style={met ? { background: '#22c55e' } : { background: 'rgba(255,255,255,0.1)' }}>
+                          {met && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                        </span>
+                        {req.label}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* confirm password */}
+              <div>
+                <label className="block text-xs font-semibold text-white/60 uppercase tracking-wider mb-2">
+                  Confirm password
+                </label>
+                <div className="relative">
+                  <input
+                    {...register('confirm_password')}
+                    type={showConfirm ? 'text' : 'password'}
+                    placeholder="Repeat your password"
+                    autoComplete="new-password"
+                    className="w-full px-4 py-3 pr-11 rounded-xl text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/60 transition-all"
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.14)',
+                    }}
+                  />
+                  <button type="button" onClick={() => setShowConfirm(v => !v)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/70 transition-colors">
+                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {errors.confirm_password && (
+                  <p className="text-red-400 text-xs mt-2 flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-red-400 flex-shrink-0" />
+                    {errors.confirm_password.message}
+                  </p>
+                )}
+              </div>
+
+              {/* submit */}
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: allMet && !loading
+                      ? 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'
+                      : 'rgba(255,255,255,0.12)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    boxShadow: allMet ? '0 4px 20px rgba(22,163,74,0.35)' : 'none',
+                  }}
+                >
+                  {loading
+                    ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Setting password…</>
+                    : <>{isReset ? 'Reset password' : 'Set password & continue'} <ArrowRight className="w-4 h-4" /></>
+                  }
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {/* below-card footnote */}
+        <p className="text-center text-primary-300 text-xs mt-6 font-medium tracking-wide">
           Rwanda Agricultural Supply Chain Traceability System
         </p>
       </div>

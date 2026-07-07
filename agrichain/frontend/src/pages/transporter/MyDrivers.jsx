@@ -1,55 +1,23 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Users, Truck, CheckCircle, Circle, Box, Snowflake, X, ChevronRight } from 'lucide-react'
+import { Plus, Users, Truck, CheckCircle, Circle, ChevronRight, X, Phone, Mail, MapPin, Home } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
+import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
 
-const BLANK = { first_name: '', last_name: '', phone_number: '', email: '', operating_districts: '' }
+const BLANK = { first_name: '', last_name: '', phone_number: '', email: '', base_location: '', operating_districts: [] }
 
-const VEHICLE_TYPE_LABELS = {
-  REFRIGERATED:   'Refrigerated Truck',
-  STANDARD_TRUCK: 'Standard Truck',
-  PICKUP:         'Pickup Truck',
-  MOTORCYCLE:     'Motorcycle',
-  MINIBUS:        'Minibus',
-}
-
-const BLANK_VEHICLE = { vehicle_type: 'STANDARD_TRUCK', plate_number: '', capacity_kg: '', operating_districts: '', has_iot_temperature: false }
-
-function DriverProfileModal({ driver, onClose, onVehicleAdded }) {
-  const [showVehicleForm, setShowVehicleForm] = useState(false)
-  const [vForm, setVForm] = useState(BLANK_VEHICLE)
-  const [saving, setSaving] = useState(false)
-
+// Simple driver detail panel — no vehicle management here.
+// Vehicles are registered in Vehicle Profile and assigned per-job in Pending Requests.
+function DriverDetailModal({ driver, onClose }) {
   if (!driver) return null
-
-  const submitVehicle = async (e) => {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      await transportApi.createVehicle({
-        vehicle_type: vForm.vehicle_type,
-        plate_number: vForm.plate_number,
-        capacity_kg: Number(vForm.capacity_kg),
-        operating_districts: vForm.operating_districts.split(',').map(s => s.trim()).filter(Boolean),
-        has_iot_temperature: vForm.has_iot_temperature,
-        transporter: driver.id,
-      })
-      toast.success(`Vehicle assigned to ${driver.name}`)
-      setShowVehicleForm(false)
-      setVForm(BLANK_VEHICLE)
-      onVehicleAdded()
-    } catch (err) {
-      const data = err.response?.data
-      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not assign vehicle')
-    } finally {
-      setSaving(false)
-    }
-  }
+  const districts = Array.isArray(driver.operating_districts)
+    ? driver.operating_districts.join(', ')
+    : driver.operating_districts || '—'
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-5 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
@@ -57,95 +25,44 @@ function DriverProfileModal({ driver, onClose, onVehicleAdded }) {
             </div>
             <div>
               <h3 className="font-bold text-gray-900">{driver.name}</h3>
-              <p className="text-xs text-gray-400">{driver.phone_number}</p>
+              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full mt-1 ${
+                driver.has_active_trip
+                  ? 'bg-success-50 text-success-700'
+                  : 'bg-gray-100 text-gray-500'
+              }`}>
+                {driver.has_active_trip ? <><CheckCircle className="w-3 h-3" /> On active trip</> : <><Circle className="w-3 h-3" /> Idle</>}
+              </span>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 text-sm">
-          <div className="flex justify-between"><span className="text-gray-500">Status</span>
-            <span className={`font-medium ${driver.has_active_trip ? 'text-success-600' : 'text-gray-700'}`}>
-              {driver.has_active_trip ? 'On an active trip' : 'Idle'}
-            </span>
-          </div>
-          {driver.operating_districts?.length > 0 && (
-            <div className="flex justify-between"><span className="text-gray-500">Operating districts</span><span className="font-medium text-gray-900">{driver.operating_districts.join(', ')}</span></div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assigned Vehicles</p>
-            {!showVehicleForm && (
-              <button onClick={() => setShowVehicleForm(true)} className="text-xs font-semibold text-primary-600 hover:text-primary-700 flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Assign Vehicle
-              </button>
-            )}
-          </div>
-
-          {driver.vehicles?.length > 0 ? (
-            <div className="space-y-2">
-              {driver.vehicles.map(v => (
-                <div key={v.id} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5 text-sm">
-                  <Box className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900">{v.plate_number} — {VEHICLE_TYPE_LABELS[v.vehicle_type] || v.vehicle_type}</p>
-                    <p className="text-xs text-gray-500">{Number(v.capacity_kg).toLocaleString()} kg capacity{v.operating_districts?.length > 0 ? ` · ${v.operating_districts.join(', ')}` : ''}</p>
-                  </div>
-                  {v.has_iot_temperature && (
-                    <span className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 flex-shrink-0">
-                      <Snowflake className="w-3 h-3" /> IoT
-                    </span>
-                  )}
-                </div>
-              ))}
+        <div className="space-y-2.5 text-sm">
+          {driver.phone_number && (
+            <div className="flex items-center gap-2.5 text-gray-600">
+              <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              {driver.phone_number}
             </div>
-          ) : !showVehicleForm && (
-            <p className="text-sm text-gray-400 py-2">No vehicle assigned yet.</p>
           )}
-
-          {showVehicleForm && (
-            <form onSubmit={submitVehicle} className="space-y-3 mt-3 border-t border-gray-100 pt-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Vehicle Type</label>
-                  <select className="input" value={vForm.vehicle_type}
-                    onChange={e => setVForm(f => ({ ...f, vehicle_type: e.target.value }))}>
-                    {Object.entries(VEHICLE_TYPE_LABELS).map(([val, label]) => (
-                      <option key={val} value={val}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Capacity (kg)</label>
-                  <input type="number" min="1" required className="input" value={vForm.capacity_kg}
-                    onChange={e => setVForm(f => ({ ...f, capacity_kg: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <label className="label">Plate Number</label>
-                <input className="input" required placeholder="e.g. RAD 123A" value={vForm.plate_number}
-                  onChange={e => setVForm(f => ({ ...f, plate_number: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">Operating Districts</label>
-                <input className="input" placeholder="e.g. Musanze, Kigali" value={vForm.operating_districts}
-                  onChange={e => setVForm(f => ({ ...f, operating_districts: e.target.value }))} />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" checked={vForm.has_iot_temperature}
-                  onChange={e => setVForm(f => ({ ...f, has_iot_temperature: e.target.checked }))} />
-                Equipped with IoT temperature sensor
-              </label>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowVehicleForm(false)} className="btn-secondary flex-1">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
-                  {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  {saving ? 'Assigning…' : 'Assign Vehicle'}
-                </button>
-              </div>
-            </form>
+          {driver.email && (
+            <div className="flex items-center gap-2.5 text-gray-600">
+              <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              {driver.email}
+            </div>
+          )}
+          {driver.base_location && (
+            <div className="flex items-center gap-2.5 text-gray-600">
+              <Home className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              {driver.base_location}
+            </div>
+          )}
+          {districts !== '—' && (
+            <div className="flex items-start gap-2.5 text-gray-600">
+              <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+              {districts}
+            </div>
           )}
         </div>
 
@@ -183,7 +100,14 @@ export default function MyDrivers() {
     e.preventDefault()
     setSaving(true)
     try {
-      const res = await transportApi.registerDriver(form)
+      const payload = {
+        ...form,
+        base_location: form.base_location || undefined,
+        operating_districts: Array.isArray(form.operating_districts)
+          ? form.operating_districts
+          : form.operating_districts.split(',').map(s => s.trim()).filter(Boolean),
+      }
+      const res = await transportApi.registerDriver(payload)
       toast.success(res.data?.message || 'Driver registered')
       setShowForm(false)
       setForm(BLANK)
@@ -207,32 +131,53 @@ export default function MyDrivers() {
   }
 
   const activeCount = drivers.filter(d => d.has_active_trip).length
+  const idleCount   = drivers.length - activeCount
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Fleet</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Register drivers under your company and see who's on an active trip.</p>
+          <h1 className="text-2xl font-bold text-gray-900">My Drivers</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Register and manage the drivers working under your company.
+            Vehicles are assigned per job in Pending Requests.
+          </p>
         </div>
         <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" /> Register Driver
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-3 gap-4">
         <div className="card flex items-center gap-4">
           <Users className="w-6 h-6 text-primary-500" />
-          <div><p className="text-xl font-bold">{loading ? '…' : drivers.length}</p><p className="text-sm text-gray-500">Drivers</p></div>
+          <div>
+            <p className="text-xl font-bold">{loading ? '…' : drivers.length}</p>
+            <p className="text-sm text-gray-500">Total drivers</p>
+          </div>
         </div>
         <div className="card flex items-center gap-4">
-          <Truck className="w-6 h-6 text-success-500" />
-          <div><p className="text-xl font-bold">{loading ? '…' : activeCount}</p><p className="text-sm text-gray-500">On an active trip</p></div>
+          <CheckCircle className="w-6 h-6 text-success-500" />
+          <div>
+            <p className="text-xl font-bold">{loading ? '…' : activeCount}</p>
+            <p className="text-sm text-gray-500">On active trip</p>
+          </div>
+        </div>
+        <div className="card flex items-center gap-4">
+          <Circle className="w-6 h-6 text-gray-400" />
+          <div>
+            <p className="text-xl font-bold">{loading ? '…' : idleCount}</p>
+            <p className="text-sm text-gray-500">Idle / available</p>
+          </div>
         </div>
       </div>
 
+      {/* Driver list */}
       {loading ? (
-        <div className="space-y-3">{[1, 2].map(i => <div key={i} className="card h-20 animate-pulse bg-gray-50" />)}</div>
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => <div key={i} className="card h-20 animate-pulse bg-gray-50" />)}
+        </div>
       ) : drivers.length === 0 ? (
         <div className="card py-16 text-center text-gray-400">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -249,10 +194,13 @@ export default function MyDrivers() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900">{d.name}</p>
-                <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap mt-0.5">
-                  <span>{d.phone_number}</span>
-                  {d.operating_districts?.length > 0 && <span>{d.operating_districts.join(', ')}</span>}
-                  <span>{d.vehicles?.length || 0} vehicle{d.vehicles?.length === 1 ? '' : 's'}</span>
+                <div className="flex items-center gap-3 text-sm text-gray-500 flex-wrap mt-0.5">
+                  {d.phone_number && <span>{d.phone_number}</span>}
+                  {d.operating_districts?.length > 0 && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> {d.operating_districts.join(', ')}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex-shrink-0 flex items-center gap-2">
@@ -272,7 +220,8 @@ export default function MyDrivers() {
         </div>
       )}
 
-      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Register Driver">
+      {/* Register driver modal */}
+      <Modal isOpen={showForm} onClose={() => { setShowForm(false); setForm(BLANK) }} title="Register Driver">
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -292,21 +241,29 @@ export default function MyDrivers() {
               onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))} />
           </div>
           <div>
-            <label className="label">Email (for OTP)</label>
+            <label className="label">Email (for OTP activation)</label>
             <input type="email" className="input" value={form.email}
               onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
           </div>
           <div>
+            <label className="label">Base location</label>
+            <input className="input" placeholder="e.g. Musanze Town" value={form.base_location}
+              onChange={e => setForm(f => ({ ...f, base_location: e.target.value }))} />
+          </div>
+          <div>
             <label className="label">Operating districts</label>
-            <input className="input" placeholder="e.g. Musanze, Kigali" value={form.operating_districts}
-              onChange={e => setForm(f => ({ ...f, operating_districts: e.target.value }))} />
-            <p className="text-xs text-gray-400 mt-1">Comma-separated. Defaults to your company's districts if left blank.</p>
+            <DistrictPicker
+              value={form.operating_districts}
+              onChange={val => setForm(f => ({ ...f, operating_districts: val }))}
+            />
           </div>
           <p className="text-xs text-gray-500">
-            The driver gets their own login under your company name. They'll receive an OTP to activate their account.
+            The driver gets their own login under your company name and receives an OTP to activate their account.
           </p>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary flex-1">Cancel</button>
+            <button type="button" onClick={() => { setShowForm(false); setForm(BLANK) }} className="btn-secondary flex-1">
+              Cancel
+            </button>
             <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
               {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
               {saving ? 'Registering…' : 'Register Driver'}
@@ -316,7 +273,7 @@ export default function MyDrivers() {
       </Modal>
 
       {selectedDriver && (
-        <DriverProfileModal driver={selectedDriver} onClose={() => setSelectedDriverId(null)} onVehicleAdded={load} />
+        <DriverDetailModal driver={selectedDriver} onClose={() => setSelectedDriverId(null)} />
       )}
     </div>
   )

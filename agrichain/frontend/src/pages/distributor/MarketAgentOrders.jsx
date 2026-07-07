@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, RefreshCw, CheckCircle, X, MapPin, ShoppingBag, Bell, FileText, Clock, Truck, Package } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
+import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
+import DeclineReasonPicker from '../../components/ui/DeclineReasonPicker.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import toast from 'react-hot-toast'
+
+const ORDER_DECLINE_REASONS = ['Out of stock', 'Quantity unavailable', 'Cannot meet delivery date', 'Order already fulfilled']
 
 const NOTICE_BLANK = {
   title: '', crop_name: '', quantity_available_kg: '', price_per_kg: '',
@@ -139,10 +143,13 @@ export default function MarketAgentOrders() {
     setAccepting(false)
   }
 
-  const handleDecline = async (order) => {
+  const [showDeclineId, setShowDeclineId] = useState(null)
+
+  const handleDecline = async (order, reason) => {
     setDecliningId(order.id)
+    setShowDeclineId(null)
     try {
-      await distributionApi.declineOrder(order.id)
+      await distributionApi.declineOrder(order.id, { reason: reason || 'Declined' })
     } catch (err) {
       if (err?.response?.status !== 404) {
         toast.error(err?.response?.data?.detail || 'Could not decline order')
@@ -306,22 +313,30 @@ export default function MarketAgentOrders() {
                           ${isPending ? 'bg-primary-500 hover:bg-primary-600 text-white' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}>
                         <CheckCircle className="w-3.5 h-3.5" /> Accept
                       </button>
-                      <button
-                        onClick={() => handleDecline(order)}
-                        disabled={busyDecline || !isPending}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors
-                          ${isPending ? 'bg-red-700 hover:bg-red-800 text-white disabled:opacity-60' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}>
-                        {busyDecline
-                          ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          : <X className="w-3.5 h-3.5" />}
-                        Decline
-                      </button>
+                      {isPending && (
+                        <button
+                          onClick={() => setShowDeclineId(order.id)}
+                          disabled={busyDecline}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-60">
+                          <X className="w-3.5 h-3.5" /> Decline
+                        </button>
+                      )}
                       <button
                         onClick={() => openNoticeForOrder(order)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary-600 border border-primary-200 hover:bg-primary-50 transition-colors ml-auto">
                         <Plus className="w-3.5 h-3.5" /> Create Notice
                       </button>
                     </div>
+                    {showDeclineId === order.id && (
+                      <div className="mt-2">
+                        <DeclineReasonPicker
+                          quickReasons={ORDER_DECLINE_REASONS}
+                          busy={busyDecline}
+                          onConfirm={reason => handleDecline(order, reason)}
+                          onCancel={() => setShowDeclineId(null)}
+                        />
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -457,7 +472,15 @@ export default function MarketAgentOrders() {
             </div>
             <div>
               <label className="label">Pickup location</label>
-              <input className="input" value={noticeForm.pickup_location} onChange={e => setNoticeForm(f => ({ ...f, pickup_location: e.target.value }))} placeholder="e.g. Kigali Warehouse A" />
+              <PlaceSearchInput
+                placeholder="Search pickup location…"
+                onSelect={({ address }) => setNoticeForm(f => ({ ...f, pickup_location: address }))}
+              />
+              {noticeForm.pickup_location && (
+                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {noticeForm.pickup_location}
+                </p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

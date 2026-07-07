@@ -57,7 +57,7 @@ const MOCK_ACTIVE = [{
 }]
 
 export default function ActiveTrip() {
-  const [trips, setTrips]           = useState(MOCK_ACTIVE)
+  const [trips, setTrips]           = useState([])
   const [loading, setLoading]       = useState(true)
   const [allDelivered, setAllDelivered] = useState(false)
   const [confirmTarget, setConfirmTarget] = useState(null)
@@ -68,8 +68,8 @@ export default function ActiveTrip() {
     transportApi.getMyActiveTrip({ _silent: true })
       .then(res => {
         const data = Array.isArray(res.data) ? res.data : (res.data?.request ? [res.data] : [])
-        if (data.length) { setTrips(data); setAllDelivered(false) }
-        else setAllDelivered(true)
+        setTrips(data)
+        setAllDelivered(data.length === 0)
       })
       .catch(() => {})
       .finally(() => setLoading(false))

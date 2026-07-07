@@ -3,10 +3,44 @@ import {
   Package, Layers, Truck, TrendingUp, ClipboardList,
   BarChart2, Trash2, CheckCircle, Globe, MapPin, Leaf,
   Activity, Download, Loader, FileText, Users, Warehouse, Inbox,
+  Calendar,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { analyticsApi, triggerDownload } from '../../api/analytics.js'
+
+const PERIODS = [
+  { id: 'today',   label: 'Today' },
+  { id: 'week',    label: 'This week' },
+  { id: 'month',   label: 'This month' },
+  { id: 'last30',  label: 'Last 30 days' },
+  { id: 'all',     label: 'All time' },
+  { id: 'custom',  label: 'Custom range' },
+]
+
+function getPeriodDates(periodId, customFrom, customTo) {
+  const today = new Date()
+  const fmt = d => d.toISOString().slice(0, 10)
+  if (periodId === 'today') {
+    const t = fmt(today)
+    return { date_from: t, date_to: t }
+  }
+  if (periodId === 'week') {
+    const start = new Date(today)
+    start.setDate(today.getDate() - today.getDay())
+    return { date_from: fmt(start), date_to: fmt(today) }
+  }
+  if (periodId === 'month') {
+    return { date_from: fmt(new Date(today.getFullYear(), today.getMonth(), 1)), date_to: fmt(today) }
+  }
+  if (periodId === 'last30') {
+    const start = new Date(today)
+    start.setDate(today.getDate() - 30)
+    return { date_from: fmt(start), date_to: fmt(today) }
+  }
+  if (periodId === 'custom') return { date_from: customFrom, date_to: customTo }
+  return {}
+}
 
 const CATALOG = {
   COOPERATIVE_MANAGER: [
@@ -255,15 +289,23 @@ const ROLE_LABELS = {
 export default function RoleReportsPage() {
   const { user } = useAuth()
   const [downloading, setDownloading] = useState(new Set())
+  const [period, setPeriod] = useState('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
 
   const reports = CATALOG[user?.role] ?? []
 
   const handleDownload = async (report, fileFormat) => {
     const key = `${report.type}:${fileFormat}`
     if (downloading.has(key)) return
+    if (period === 'custom' && (!customFrom || !customTo)) {
+      toast.error('Please select both a start and end date for custom range.')
+      return
+    }
     setDownloading(prev => new Set([...prev, key]))
     try {
-      const res = await analyticsApi.exportReport({ report_type: report.type, file_format: fileFormat })
+      const dateParams = getPeriodDates(period, customFrom, customTo)
+      const res = await analyticsApi.exportReport({ report_type: report.type, file_format: fileFormat, ...dateParams })
       const filename = fileFormat === 'pdf'
         ? report.filename.replace(/\.csv$/, '.pdf')
         : report.filename
@@ -287,6 +329,46 @@ export default function RoleReportsPage() {
         <p className="text-sm text-gray-500 mt-0.5">
           Generated live from your current data — download as CSV for analysis, or PDF for a printable document.
         </p>
+      </div>
+
+      {/* ── Date range filter ── */}
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Calendar className="w-4 h-4 text-gray-400" />
+          <span className="text-sm font-medium text-gray-700">Report period</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {PERIODS.map(p => (
+            <button key={p.id} onClick={() => setPeriod(p.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                period === p.id
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
+              }`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {period === 'custom' && (
+          <div className="flex items-center gap-3 mt-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">From</label>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="input text-sm py-1.5" />
+            </div>
+            <span className="text-gray-400 mt-5">→</span>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">To</label>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="input text-sm py-1.5" />
+            </div>
+          </div>
+        )}
+        {period !== 'all' && period !== 'custom' && (
+          <p className="text-xs text-gray-400 mt-2">
+            {period === 'today'
+              ? "Reports will only include records from today."
+              : `Reports will only include records from ${PERIODS.find(p2 => p2.id === period)?.label.toLowerCase()}.`}
+          </p>
+        )}
       </div>
 
       {reports.length === 0 ? (

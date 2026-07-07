@@ -8,6 +8,7 @@ export const analyticsApi = {
   // MINAGRI live-compute endpoints
   getMinagriExecutive:   ()       => apiClient.get('/analytics/minagri/executive/'),
   getMinagriDistricts:   ()       => apiClient.get('/analytics/minagri/districts/'),
+  getMinagriRankings:    ()       => apiClient.get('/analytics/minagri/rankings/'),
   getMinagriLossTrend:   ()       => apiClient.get('/analytics/minagri/loss-trend/'),
   getMinagriBottlenecks: ()       => apiClient.get('/analytics/minagri/bottlenecks/'),
   getMinagriAlerts:      ()       => apiClient.get('/analytics/minagri/notifications/'),

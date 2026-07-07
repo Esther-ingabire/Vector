@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Users, Truck, CheckCircle, Circle, Thermometer, AlertTriangle } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
+import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import toast from 'react-hot-toast'
 
@@ -157,9 +158,10 @@ export default function Transporters() {
           </div>
           <div>
             <label className="label">Operating districts</label>
-            <input className="input" placeholder="e.g. Kigali, Musanze" value={form.operating_districts}
-              onChange={e => setForm(f => ({ ...f, operating_districts: e.target.value }))} />
-            <p className="text-xs text-gray-400 mt-1">Comma-separated. Defaults to your own district if left blank.</p>
+            <DistrictPicker
+              value={Array.isArray(form.operating_districts) ? form.operating_districts : (form.operating_districts || '').split(',').map(s => s.trim()).filter(Boolean)}
+              onChange={val => setForm(f => ({ ...f, operating_districts: val }))}
+            />
           </div>
           <p className="text-xs text-gray-500">
             They get their own login. They'll receive an OTP to activate their account.
