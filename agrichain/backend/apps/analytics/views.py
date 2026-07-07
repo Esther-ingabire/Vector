@@ -274,6 +274,95 @@ class MinagriDistrictPerformanceView(_MinagriBase):
         return Response(results)
 
 
+class MinagriOrgRankingsView(_MinagriBase):
+    """
+    Cooperative and distributor performance rankings — replaces per-batch traceability
+    drill-down for this role. A national policy officer already gets batch-level loss
+    synthesized into the AI brief and district/crop aggregates; what isn't covered
+    anywhere else is "which organisations, by name, are driving that loss" — the natural
+    next question once a district or crop is flagged, and the one this view answers.
+    """
+
+    def get(self, request):
+        from django.db.models import Avg, Count, Q
+        from apps.cooperatives.models import Cooperative
+        from apps.traceability.models import Batch
+        from apps.distribution.models import Distributor, Order, DistributorWasteReport
+
+        def tier(score_0_to_5):
+            if score_0_to_5 >= 3.5:
+                return 'HIGH'
+            if score_0_to_5 >= 2.0:
+                return 'MEDIUM'
+            return 'LOW'
+
+        # ── Cooperatives — reuse the stored weekly-computed reliability_score, cross-referenced
+        # with a live average loss % so a low score is explained by an actual number. ──────────
+        coop_loss = {
+            row['cooperative_id']: row
+            for row in Batch.objects.filter(total_loss_pct__isnull=False)
+            .values('cooperative_id')
+            .annotate(avg_loss=Avg('total_loss_pct'), batch_count=Count('id'))
+        }
+        cooperatives = []
+        for c in Cooperative.objects.filter(is_active=True):
+            loss_row = coop_loss.get(c.id, {})
+            cooperatives.append({
+                'id': c.id,
+                'name': c.name,
+                'district': c.district,
+                'score': round(float(c.reliability_score), 2),
+                'on_time_dispatch_rate': round(float(c.on_time_dispatch_rate), 1),
+                'quality_consistency_rate': round(float(c.quality_consistency_rate), 1),
+                'response_rate': round(float(c.response_rate), 1),
+                'avg_loss_pct': round(float(loss_row.get('avg_loss') or 0), 2),
+                'batch_count': loss_row.get('batch_count', 0),
+                'tier': tier(float(c.reliability_score)),
+            })
+        cooperatives.sort(key=lambda r: r['score'], reverse=True)
+
+        # ── Distributors — no stored score field exists yet, so compute one live from order
+        # fulfilment, leg-1 transit loss on batches they received, and warehouse spoilage. ────
+        distributors = []
+        for d in Distributor.objects.filter(is_active=True):
+            orders = Order.objects.filter(distributor=d)
+            total_orders = orders.count()
+            completed = orders.filter(status=Order.Status.COMPLETED).count()
+            fulfillment_rate = (completed / total_orders * 100) if total_orders else 0.0
+
+            transit = Batch.objects.filter(
+                received_by_distributor=d, transit_loss_leg1_pct__isnull=False
+            ).aggregate(avg=Avg('transit_loss_leg1_pct'))['avg'] or 0
+
+            spoilage = DistributorWasteReport.objects.filter(distributor=d).aggregate(
+                avg=Avg('warehouse_spoilage_loss_pct')
+            )['avg'] or 0
+
+            # Same 0-5 star convention as Cooperative.reliability_score: fulfilment counts
+            # like an "on-time" signal, transit/spoilage loss are inverted (lower is better).
+            score = (
+                (fulfillment_rate * 0.4) +
+                (max(0, 100 - float(transit) * 5) * 0.3) +
+                (max(0, 100 - float(spoilage) * 5) * 0.3)
+            ) / 20
+            score = min(5.0, max(0.0, score))
+
+            distributors.append({
+                'id': d.id,
+                'name': d.company_name or str(d),
+                'district': d.district,
+                'score': round(score, 2),
+                'fulfillment_rate': round(fulfillment_rate, 1),
+                'avg_transit_loss_pct': round(float(transit), 2),
+                'avg_spoilage_loss_pct': round(float(spoilage), 2),
+                'order_count': total_orders,
+                'tier': tier(score),
+            })
+        distributors.sort(key=lambda r: r['score'], reverse=True)
+
+        return Response({'cooperatives': cooperatives, 'distributors': distributors})
+
+
 class MinagriLossTrendView(_MinagriBase):
     """6-month actual loss trend + sklearn linear regression prediction."""
 

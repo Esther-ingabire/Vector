@@ -27,7 +27,7 @@ def fleet_monitoring_rows(transporter_ids):
         latest_gps = GPSTrack.objects.filter(trip=trip).order_by('-timestamp').first()
         results.append({
             'trip_id': trip.id,
-            'driver_name': str(req.transporter),
+            'driver_name': req.transporter.user.get_full_name() or str(req.transporter),
             'pickup_location': req.pickup_location,
             'destination': req.destination,
             'requires_refrigeration': req.requires_refrigeration,
