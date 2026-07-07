@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { MapPin, Thermometer, Truck, CheckCircle, Package, AlertTriangle, Navigation } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { MapPin, Thermometer, Truck, CheckCircle, Package, AlertTriangle, Navigation, Map } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import { traceabilityApi } from '../../api/traceability.js'
+import { reverseGeocode } from '../../lib/mapbox.js'
 
 const TRANSIT_STATUSES = ['IN_TRANSIT_LEG1', 'IN_TRANSIT_LEG2']
 
@@ -30,13 +31,17 @@ const MOCK_BATCHES = [
 ]
 
 
-export default function ActiveBatches() {
+// onViewMap(batch) — called when the user wants to see the batch's route on the
+// in-app map (switches to the Traceability tab in the parent TraceabilityView).
+export default function ActiveBatches({ onViewMap }) {
   const [batches, setBatches] = useState(MOCK_BATCHES)
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [iotData, setIotData] = useState(null)
+  const [placeName, setPlaceName] = useState(null)
+  const geocodeRef = useRef(null)
 
   useEffect(() => {
     traceabilityApi.getBatches()
@@ -51,6 +56,7 @@ export default function ActiveBatches() {
     setSelected(batch)
     setDetail(null)
     setIotData(null)
+    setPlaceName(null)
     setLoadingDetail(true)
     try {
       const res = await traceabilityApi.getBatch(batch.id, { _silent: true })
@@ -61,7 +67,20 @@ export default function ActiveBatches() {
       setLoadingDetail(false)
     }
     if (TRANSIT_STATUSES.includes(batch.current_status)) {
-      traceabilityApi.getBatchIoT(batch.id).then(res => setIotData(res.data)).catch(() => {})
+      traceabilityApi.getBatchIoT(batch.id).then(async res => {
+        const iot = res.data
+        setIotData(iot)
+        // Reverse geocode the latest GPS fix to show a real place name
+        const track = iot?.gps_tracks?.[0]
+        if (track?.latitude && track?.longitude) {
+          // Cancel any in-flight geocode for a previous batch
+          geocodeRef.current = `${track.latitude},${track.longitude}`
+          const key = geocodeRef.current
+          const name = await reverseGeocode(track.latitude, track.longitude)
+          // Only apply if user hasn't opened another batch in the meantime
+          if (geocodeRef.current === key) setPlaceName(name)
+        }
+      }).catch(() => {})
     }
   }
 
@@ -293,10 +312,22 @@ export default function ActiveBatches() {
                   )}
                   {iotData.gps_tracks?.length > 0 && (
                     <div className="bg-gray-50 rounded-lg p-3">
-                      <p className="text-xs text-gray-500 flex items-center gap-1"><Navigation className="w-3 h-3" /> Last known location</p>
-                      <p className="font-medium text-gray-900 mt-0.5 text-xs">
-                        {iotData.gps_tracks[0].latitude}, {iotData.gps_tracks[0].longitude}
+                      <p className="text-xs text-gray-500 flex items-center gap-1">
+                        <Navigation className="w-3 h-3" /> Last known location
                       </p>
+                      <p className="font-medium text-gray-900 mt-0.5 text-sm">
+                        {placeName ?? (
+                          <span className="text-gray-400 text-xs italic">Resolving location…</span>
+                        )}
+                      </p>
+                      {onViewMap && (
+                        <button
+                          onClick={() => onViewMap(selected)}
+                          className="inline-flex items-center gap-1.5 mt-2 text-xs text-primary-600 hover:text-primary-800 font-medium transition-colors"
+                        >
+                          <Map className="w-3 h-3" /> View route on map
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

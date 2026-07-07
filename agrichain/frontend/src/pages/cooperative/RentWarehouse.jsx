@@ -109,12 +109,21 @@ export default function RentWarehouse() {
         <section className="space-y-2">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Your Rental Requests</p>
           {requests.map(r => (
-            <div key={r.id} className="card py-3 flex items-center justify-between">
-              <div>
-                <p className="font-medium text-sm text-gray-900">{r.facility_name}</p>
-                <p className="text-xs text-gray-500">{Number(r.requested_capacity_kg).toLocaleString()} kg requested · {r.warehouse_manager_name}</p>
+            <div key={r.id} className="card py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-sm text-gray-900">{r.facility_name}</p>
+                  <p className="text-xs text-gray-500">{Number(r.requested_capacity_kg).toLocaleString()} kg requested · {r.warehouse_manager_name}</p>
+                </div>
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${STATUS_STYLE[r.status]}`}>{r.status}</span>
               </div>
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_STYLE[r.status]}`}>{r.status}</span>
+              {/* Show warehouse manager's decline reason when request was declined */}
+              {r.status === 'DECLINED' && r.decline_reason && (
+                <div className="bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
+                  <p className="text-xs font-semibold text-danger-600 mb-0.5">Reason for declining</p>
+                  <p className="text-xs text-danger-700">{r.decline_reason}</p>
+                </div>
+              )}
             </div>
           ))}
         </section>

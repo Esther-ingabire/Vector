@@ -36,6 +36,37 @@ class IoTReadingViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # IoT devices POST directly; no user ownership needed
         reading = serializer.save()
+        facility = reading.facility
+
+        # This facility has a real physical device attached (sensor_device_id set) — mirror
+        # its reading onto every currently active trip too, so transporter/distributor/MINAGRI
+        # views relying on VehicleIoTReading show genuine sensor data instead of the
+        # simulator's fake numbers. There's only one physical sensor right now, so it stands
+        # in for every role that reads cold-chain data until more hardware exists.
+        if facility.sensor_device_id:
+            from apps.transport.models import Trip
+            active_trips = Trip.objects.filter(
+                pickup_confirmed_at__isnull=False,
+                delivery_confirmed_at__isnull=True,
+            )
+            for trip in active_trips:
+                vreading = VehicleIoTReading.objects.create(
+                    trip=trip,
+                    temperature_celsius=reading.temperature_celsius,
+                    timestamp=reading.timestamp,
+                )
+                if vreading.is_breach and not vreading.alert_sent:
+                    req = trip.transport_request
+                    notify(
+                        req.transporter.user,
+                        Notification.NotificationType.COLD_CHAIN_ALERT,
+                        'Cold Chain Temperature Breach',
+                        f'{vreading.temperature_celsius}°C recorded on Trip #{trip.id} — cargo may be at risk.',
+                        related_object_type='vehicle_iot_reading', related_object_id=vreading.id,
+                    )
+                    vreading.alert_sent = True
+                    vreading.save(update_fields=['alert_sent'])
+
         if (reading.is_temperature_breach or reading.is_humidity_breach) and not reading.alert_sent:
             facility = reading.facility
             # Notify whoever is currently using the space (cooperative) and whoever owns

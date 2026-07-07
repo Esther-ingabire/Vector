@@ -45,12 +45,14 @@ export default function FleetMonitoring() {
   const [submitting, setSubmitting] = useState(false)
   const [resolving, setResolving] = useState(null)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  // `silent` skips the loading-state toggle so periodic polling doesn't flicker
+  // the whole list — only the very first load shows the loading skeleton.
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true)
     transportApi.getFleetMonitoring({ _silent: true })
       .then(res => setTrips(res.data || []))
       .catch(() => setTrips([]))
-      .finally(() => setLoading(false))
+      .finally(() => { if (!silent) setLoading(false) })
     if (isCompany) {
       transportApi.getMyIncidents({}, { _silent: true })
         .then(res => {
@@ -62,6 +64,12 @@ export default function FleetMonitoring() {
   }, [isCompany])
 
   useEffect(() => { load() }, [load])
+
+  // Poll for fresh trip/temperature data every 10s so breaches show up live.
+  useEffect(() => {
+    const interval = setInterval(() => load(true), 10000)
+    return () => clearInterval(interval)
+  }, [load])
 
   const submitIncident = async (e) => {
     e.preventDefault()

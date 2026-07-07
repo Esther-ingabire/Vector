@@ -150,71 +150,223 @@ class ExportReportView(APIView):
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import cm
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT, TA_JUSTIFY
+        from reportlab.platypus import (
+            SimpleDocTemplate, Table, TableStyle, Paragraph,
+            Spacer, HRFlowable, KeepTogether,
+        )
+
+        GREEN_DARK  = colors.HexColor('#0b2b18')
+        GREEN_MID   = colors.HexColor('#1a5c34')
+        GREEN_LIGHT = colors.HexColor('#eef7f2')
+        GREEN_ACC   = colors.HexColor('#228b52')
+        GRAY_LINE   = colors.HexColor('#e5e7eb')
+        GRAY_ALT    = colors.HexColor('#f9fafb')
+        TEXT_DARK   = colors.HexColor('#111827')
+        TEXT_MID    = colors.HexColor('#6b7280')
 
         buf = io.BytesIO()
+        page_w, page_h = landscape(A4)
+        margin = 1.8 * cm
+        content_w = page_w - 2 * margin
+
         doc = SimpleDocTemplate(
             buf, pagesize=landscape(A4),
-            topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+            topMargin=margin, bottomMargin=1.4 * cm,
+            leftMargin=margin, rightMargin=margin,
         )
+
         styles = getSampleStyleSheet()
-        elements = [
-            Paragraph(title, styles['Title']),
+        styles.add(ParagraphStyle('ReportTitle',  fontSize=18, leading=22, fontName='Helvetica-Bold',
+                                  textColor=colors.white, spaceAfter=2))
+        styles.add(ParagraphStyle('ReportMeta',   fontSize=9,  leading=13, fontName='Helvetica',
+                                  textColor=colors.HexColor('#86efac'), spaceAfter=0))
+        styles.add(ParagraphStyle('SectionHead',  fontSize=11, leading=14, fontName='Helvetica-Bold',
+                                  textColor=GREEN_MID, spaceBefore=16, spaceAfter=6))
+        styles.add(ParagraphStyle('BodySmall',    fontSize=9,  leading=13, fontName='Helvetica',
+                                  textColor=TEXT_MID, spaceAfter=4, alignment=TA_JUSTIFY))
+        styles.add(ParagraphStyle('StatLabel',    fontSize=8,  leading=10, fontName='Helvetica',
+                                  textColor=TEXT_MID))
+        styles.add(ParagraphStyle('StatValue',    fontSize=14, leading=17, fontName='Helvetica-Bold',
+                                  textColor=GREEN_MID))
+        styles.add(ParagraphStyle('CellPara',     fontSize=8.5, leading=11, fontName='Helvetica',
+                                  textColor=TEXT_DARK, wordWrap='CJK'))
+        styles.add(ParagraphStyle('CellParaGray', fontSize=8.5, leading=11, fontName='Helvetica',
+                                  textColor=TEXT_MID))
+        styles.add(ParagraphStyle('FooterText',   fontSize=8,  leading=11, fontName='Helvetica-Oblique',
+                                  textColor=TEXT_MID, alignment=TA_CENTER))
+
+        generated_at = timezone.now().strftime('%d %B %Y at %H:%M')
+        generated_by = request.user.get_full_name() or request.user.phone_number
+        role_label   = request.user.role.replace('_', ' ').title()
+
+        # ── Helper: build a styled, wrapping data table ───────────────────────
+        def _make_table(hdrs, data_rows, extra_width=0):
+            if not data_rows:
+                return Paragraph('No records in this period.', styles['BodySmall'])
+            n = len(hdrs)
+            unit = (content_w + extra_width) / n
+            col_w = [unit] * n
+
+            def wrap(val, gray=False):
+                s = str(val) if val is not None and str(val) != 'None' else '—'
+                style = styles['CellParaGray'] if gray else styles['CellPara']
+                return Paragraph(s, style)
+
+            hdr_style = ParagraphStyle('HdrCell', fontSize=8.5, leading=11,
+                                       fontName='Helvetica-Bold', textColor=colors.white)
+            t_data = [[Paragraph(h, hdr_style) for h in hdrs]]
+            for i, row in enumerate(data_rows):
+                is_alt = i % 2 == 1
+                t_data.append([wrap(c, gray=is_alt) for c in row])
+
+            tbl = Table(t_data, colWidths=col_w, repeatRows=1)
+            tbl.setStyle(TableStyle([
+                ('BACKGROUND',    (0, 0), (-1,  0), GREEN_MID),
+                ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, GRAY_ALT]),
+                ('GRID',          (0, 0), (-1, -1), 0.4, GRAY_LINE),
+                ('LINEBELOW',     (0, 0), (-1,  0), 1.2, GREEN_ACC),
+                ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
+            ]))
+            return tbl
+
+        # ── Helper: compute quick summary stats from numeric columns ──────────
+        def _summary_stats(hdrs, data_rows):
+            if not data_rows or not hdrs:
+                return []
+            stats = []
+            for col_idx, col_name in enumerate(hdrs):
+                vals = []
+                for row in data_rows:
+                    try:
+                        v = float(row[col_idx])
+                        vals.append(v)
+                    except (ValueError, TypeError, IndexError):
+                        pass
+                if vals and any(kw in col_name.lower() for kw in ('kg', 'loss', 'rate', 'weight', '%', 'count', 'total')):
+                    total = sum(vals)
+                    avg   = total / len(vals)
+                    disp  = f'{total:,.1f}' if total != int(total) else f'{int(total):,}'
+                    if '%' in col_name or 'rate' in col_name.lower():
+                        disp = f'{avg:.1f}%'
+                    stats.append((col_name, disp))
+                    if len(stats) >= 4:
+                        break
+            return stats
+
+        # ── Page-header banner (green block) ─────────────────────────────────
+        banner_data = [[
+            Paragraph(title, styles['ReportTitle']),
             Paragraph(
-                f"Generated {timezone.now().strftime('%Y-%m-%d %H:%M')} by "
-                f"{request.user.get_full_name() or request.user.phone_number} — ChainSight Supply Chain Analytics",
-                styles['Normal'],
+                f'Generated {generated_at}<br/>'
+                f'By {generated_by} ({role_label})<br/>'
+                f'ChainSight Supply Chain Analytics — Rwanda',
+                styles['ReportMeta'],
             ),
-            Spacer(1, 0.5 * cm),
-        ]
+        ]]
+        banner = Table(banner_data, colWidths=[content_w * 0.62, content_w * 0.38])
+        banner.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), GREEN_DARK),
+            ('TOPPADDING',    (0, 0), (-1, -1), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 14),
+            ('LEFTPADDING',   (0, 0), (-1, -1), 16),
+            ('RIGHTPADDING',  (0, 0), (-1, -1), 16),
+            ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+            ('ROUNDEDCORNERS', [6]),
+        ]))
 
+        elements = [banner, Spacer(1, 0.6 * cm)]
+
+        # ── Summary stats ─────────────────────────────────────────────────────
+        stats = _summary_stats(headers, rows)
+        if stats:
+            stat_cells = []
+            for label, value in stats:
+                cell = [Paragraph(value, styles['StatValue']), Paragraph(label, styles['StatLabel'])]
+                stat_cells.append(cell)
+            stat_tbl = Table(
+                [stat_cells],
+                colWidths=[content_w / len(stats)] * len(stats),
+            )
+            stat_tbl.setStyle(TableStyle([
+                ('BACKGROUND',    (0, 0), (-1, -1), GREEN_LIGHT),
+                ('TOPPADDING',    (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 14),
+                ('RIGHTPADDING',  (0, 0), (-1, -1), 14),
+                ('LINEAFTER',     (0, 0), (-2, -1), 0.6, GRAY_LINE),
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements += [stat_tbl, Spacer(1, 0.5 * cm)]
+
+        # ── Record count note ─────────────────────────────────────────────────
+        elements.append(Paragraph(
+            f'{len(rows)} record{"s" if len(rows) != 1 else ""} found.',
+            styles['BodySmall'],
+        ))
+        elements.append(Spacer(1, 0.3 * cm))
+
+        # ── Main data table ───────────────────────────────────────────────────
         if not rows:
-            elements.append(Paragraph('No data available for this report.', styles['Normal']))
+            elements.append(Paragraph('No data available for this report.', styles['BodySmall']))
         else:
-            table_data = [headers] + [[str(c) for c in row] for row in rows]
-            table = Table(table_data, repeatRows=1)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#15803d')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ]))
-            elements.append(table)
-            elements.append(Spacer(1, 0.3 * cm))
-            elements.append(Paragraph(f'{len(rows)} record(s).', styles['Normal']))
+            elements.append(_make_table(headers, rows))
 
+        # ── Extra sections (e.g. route performance in complete reports) ───────
         for section_title, section_headers, section_rows in (extra_sections or []):
-            elements.append(Spacer(1, 0.7 * cm))
-            elements.append(Paragraph(section_title, styles['Heading2']))
-            elements.append(Spacer(1, 0.2 * cm))
-            if not section_rows:
-                elements.append(Paragraph('No data available.', styles['Normal']))
-                continue
-            section_table = Table([section_headers] + [[str(c) for c in row] for row in section_rows], repeatRows=1)
-            section_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#15803d')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9fafb')]),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ]))
-            elements.append(section_table)
+            elements += [
+                Spacer(1, 0.8 * cm),
+                HRFlowable(width=content_w, thickness=1, color=GRAY_LINE),
+                Spacer(1, 0.3 * cm),
+                Paragraph(section_title, styles['SectionHead']),
+                Spacer(1, 0.2 * cm),
+                _make_table(section_headers, section_rows),
+            ]
+
+        # ── Footer note ───────────────────────────────────────────────────────
+        elements += [
+            Spacer(1, 0.6 * cm),
+            HRFlowable(width=content_w, thickness=0.5, color=GRAY_LINE),
+            Spacer(1, 0.2 * cm),
+            Paragraph(
+                'This report was generated automatically by ChainSight — Rwanda Agricultural Supply Chain Traceability System. '
+                'Data reflects the state of the system at the time of generation.',
+                styles['FooterText'],
+            ),
+        ]
 
         doc.build(elements)
         buf.seek(0)
         resp = HttpResponse(buf.getvalue(), content_type='application/pdf')
         resp['Content-Disposition'] = f'attachment; filename="{base_filename}.pdf"'
         return resp
+
+    @staticmethod
+    def _parse_date_range(request):
+        """
+        Extract optional date_from / date_to query params and return as
+        aware datetime objects (start of day / end of day) or None.
+        """
+        from datetime import datetime, time
+        import pytz
+        tz = pytz.timezone('Africa/Kigali')
+
+        def parse(s):
+            try:
+                return tz.localize(datetime.strptime(s, '%Y-%m-%d'))
+            except Exception:
+                return None
+
+        date_from = parse(request.query_params.get('date_from', ''))
+        raw_to    = parse(request.query_params.get('date_to', ''))
+        # Include the whole 'to' day
+        date_to = tz.localize(datetime.combine(raw_to.date(), time.max)) if raw_to else None
+        return date_from, date_to
 
     def get(self, request):
         role = request.user.role
@@ -225,7 +377,6 @@ class ExportReportView(APIView):
         report_type = request.query_params.get('report_type', self._DEFAULTS.get(role, ''))
         method_name = role_map.get(report_type)
         if not method_name:
-            # Fall back to default for this role
             method_name = role_map.get(self._DEFAULTS.get(role, ''))
         if not method_name:
             return Response({'detail': f'Unknown report_type "{report_type}" for role {role}.'}, status=400)
@@ -255,6 +406,13 @@ class ExportReportView(APIView):
         except Exception:
             return Response({'detail': 'No cooperative profile linked.'}, status=400)
 
+        date_from, date_to = self._parse_date_range(request)
+        qs = Batch.objects.filter(cooperative=coop).select_related('crop')
+        if date_from:
+            qs = qs.filter(dispatch_timestamp__gte=date_from)
+        if date_to:
+            qs = qs.filter(dispatch_timestamp__lte=date_to)
+
         headers = [
             'Batch ID', 'Crop', 'Dispatch Weight (kg)', 'Status', 'Dispatch Date',
             'Transit Loss (kg)', 'Transit Loss (%)', 'Total Loss (kg)', 'Total Loss (%)',
@@ -268,7 +426,7 @@ class ExportReportView(APIView):
                 float(b.transit_loss_leg1_kg or 0), float(b.transit_loss_leg1_pct or 0),
                 float(b.total_loss_kg or 0), float(b.total_loss_pct or 0),
             ]
-            for b in Batch.objects.filter(cooperative=coop).select_related('crop')
+            for b in qs
         ]
         return f'Cooperative Batch Report — {coop.name}', headers, rows, 'cooperative_batch_report'
 
@@ -521,13 +679,20 @@ class ExportReportView(APIView):
 
     def _dist_delivery_comparison(self, request):
         from apps.distribution.models import Order
-        from django.db.models import Sum, Count, Q
+        from apps.traceability.models import Batch
+        from apps.cooperatives.models import Crop
+        from django.db.models import Sum, Count, Avg, Q, FloatField, ExpressionWrapper, F
         try:
             dist = request.user.distributor_profile
         except Exception:
             return Response({'detail': 'No distributor profile linked.'}, status=400)
 
-        headers = ['Delivery Method', 'Total Orders', 'Completed', 'Cancelled / Declined', 'Total Volume (kg)']
+        # ── Part 1: Delivery method summary with loss rates ─────────────────
+        headers = [
+            'Delivery Method', 'Total Orders', 'Completed Orders',
+            'Cancelled / Declined', 'Total Volume (kg)',
+            'Avg Transit Loss (%)', 'Avg Spoilage Loss (%)',
+        ]
         rows = []
         for method in ['SELF_COLLECTION', 'TRANSPORTER_DELIVERY']:
             qs = Order.objects.filter(distributor=dist, delivery_method=method)
@@ -537,16 +702,56 @@ class ExportReportView(APIView):
                 cancelled=Count('id', filter=Q(status__in=['DECLINED', 'CANCELLED'])),
                 volume=Sum('confirmed_quantity_kg'),
             )
+            # Loss rates from linked batches
+            batches = Batch.objects.filter(
+                received_by_distributor=dist,
+                transport_request_leg2__isnull=(method == 'SELF_COLLECTION'),
+            )
+            loss_agg = batches.aggregate(
+                avg_transit=Avg('transit_loss_leg1_pct'),
+                avg_spoilage=Avg('market_spoilage_loss_pct'),
+            )
             rows.append([
-                method.replace('_', ' ').title(),
+                'Self-Collection' if method == 'SELF_COLLECTION' else 'Transporter Delivery',
                 agg['total'],
                 agg['completed'],
                 agg['cancelled'],
-                round(float(agg['volume'] or 0), 2),
+                round(float(agg['volume'] or 0), 1),
+                round(float(loss_agg['avg_transit'] or 0), 2),
+                round(float(loss_agg['avg_spoilage'] or 0), 2),
             ])
+
+        # ── Part 2: Crop-level loss breakdown ───────────────────────────────
+        crop_headers = ['Crop', 'Batches Received', 'Avg Transit Loss (%)', 'Avg Spoilage (%)', 'Total Loss (kg)']
+        all_batches = Batch.objects.filter(received_by_distributor=dist).select_related('crop')
+        crop_data = {}
+        for b in all_batches:
+            name = b.crop.name if b.crop else 'Unknown'
+            if name not in crop_data:
+                crop_data[name] = {'count': 0, 'transit': [], 'spoilage': [], 'total_loss_kg': 0}
+            crop_data[name]['count'] += 1
+            if b.transit_loss_leg1_pct: crop_data[name]['transit'].append(float(b.transit_loss_leg1_pct))
+            if b.market_spoilage_loss_pct: crop_data[name]['spoilage'].append(float(b.market_spoilage_loss_pct))
+            if b.total_loss_kg: crop_data[name]['total_loss_kg'] += float(b.total_loss_kg)
+
+        crop_rows = [
+            [
+                crop,
+                d['count'],
+                round(sum(d['transit']) / len(d['transit']), 2) if d['transit'] else 0,
+                round(sum(d['spoilage']) / len(d['spoilage']), 2) if d['spoilage'] else 0,
+                round(d['total_loss_kg'], 1),
+            ]
+            for crop, d in sorted(crop_data.items(), key=lambda x: -x[1]['total_loss_kg'])
+        ]
+
+        extra_sections = [
+            ('Crop-Level Loss Breakdown', crop_headers, crop_rows),
+        ]
+
         return (
-            f'Distributor Delivery Method Comparison — {dist}', headers, rows,
-            'distributor_delivery_comparison_report',
+            f'Distributor Delivery Method Analysis — {dist}', headers, rows,
+            'distributor_delivery_comparison_report', extra_sections,
         )
 
     def _dist_waste(self, request):

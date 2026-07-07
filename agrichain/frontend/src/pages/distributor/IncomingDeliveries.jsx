@@ -14,7 +14,14 @@ const MOCK_DELIVERIES = [
   { id: 'BCH-2026-004', batch_id: 'BCH-2026-004', cooperative_name: 'Musanze Coffee Coop', crop_name: 'Maize', shipped_qty_kg: 3200, eta: '2026-05-28', status: 'CONFIRMED' },
 ]
 
-const CONFIRM_BLANK = { received_qty_kg: '', quality_grade_received: 'A', loss_reason: '', notes: '' }
+const CONFIRM_BLANK = {
+  received_qty_kg: '', quality_grade_received: 'A',
+  shortfall_type: '',           // 'TRANSIT_LOSS' | 'NOT_DISPATCHED'
+  transit_loss_reason: '',      // reason when produce left coop but was lost en route
+  not_dispatched_reason: '',    // reason when coop never loaded the missing quantity
+  not_dispatched_kg: '',        // how many kg the coop didn't send
+  notes: '',
+}
 const GRADE_OPTIONS = ['A', 'B', 'C']
 const FILTER_OPTIONS = ['ALL', 'IN_TRANSIT', 'CONFIRMED']
 const FILTER_LABEL = { ALL: 'All', IN_TRANSIT: 'In Transit', CONFIRMED: 'Confirmed' }
@@ -96,13 +103,23 @@ export default function IncomingDeliveries() {
     if (!confirmTarget) return
     setSaving(true)
     try {
+      // Build a precise loss_reason string from the structured shortfall form
+      let loss_reason = ''
+      if (lossKg > 0) {
+        if (confirmForm.shortfall_type === 'TRANSIT_LOSS') {
+          loss_reason = `IN_TRANSIT: ${confirmForm.transit_loss_reason}`
+        } else if (confirmForm.shortfall_type === 'NOT_DISPATCHED') {
+          loss_reason = `NOT_DISPATCHED: ${confirmForm.not_dispatched_reason} — ${lossKg}kg of ${confirmTarget.crop_name} not sent by cooperative`
+        }
+      }
       await distributionApi.confirmReceipt(confirmTarget.batch_id, {
         received_qty_kg: receivedNum,
         quality_grade_received: confirmForm.quality_grade_received,
         loss_kg: lossKg,
         loss_pct: parseFloat(lossPct),
-        loss_reason: confirmForm.loss_reason,
+        loss_reason,
         notes: confirmForm.notes,
+        shortfall_type: confirmForm.shortfall_type || null,
       })
       setDeliveries(prev => prev.map(d => d.id === confirmTarget.id ? { ...d, status: 'CONFIRMED' } : d))
       toast.success('Receipt confirmed successfully')
@@ -136,7 +153,15 @@ export default function IncomingDeliveries() {
     setBulkGroup(group)
     setBulkNotes('')
     const forms = {}
-    group.forEach(d => { forms[d.id] = { received_qty_kg: d.shipped_qty_kg, quality_grade_received: 'A', loss_reason: '' } })
+    group.forEach(d => {
+      forms[d.id] = {
+        received_qty_kg: d.shipped_qty_kg,
+        quality_grade_received: 'A',
+        shortfall_type: '',
+        transit_loss_reason: '',
+        not_dispatched_reason: '',
+      }
+    })
     setBulkForms(forms)
   }
 
@@ -156,12 +181,21 @@ export default function IncomingDeliveries() {
       await Promise.all(bulkGroup.map(d => {
         const form = bulkForms[d.id]
         const { lossKg, lossPct } = bulkLoss(d)
+        let loss_reason = ''
+        if (lossKg > 0) {
+          if (form.shortfall_type === 'TRANSIT_LOSS') {
+            loss_reason = `IN_TRANSIT: ${form.transit_loss_reason}`
+          } else if (form.shortfall_type === 'NOT_DISPATCHED') {
+            loss_reason = `NOT_DISPATCHED: ${form.not_dispatched_reason} — ${lossKg}kg of ${d.crop_name} not sent by cooperative`
+          }
+        }
         return distributionApi.confirmReceipt(d.batch_id, {
           received_qty_kg: Number(form.received_qty_kg) || 0,
           quality_grade_received: form.quality_grade_received,
           loss_kg: lossKg,
           loss_pct: parseFloat(lossPct),
-          loss_reason: form.loss_reason,
+          loss_reason,
+          shortfall_type: form.shortfall_type || null,
           notes: bulkNotes,
         })
       }))
@@ -329,7 +363,7 @@ export default function IncomingDeliveries() {
               </div>
             </div>
 
-            {/* Auto-calculated loss */}
+            {/* Quantity summary */}
             {receivedNum > 0 && (
               <div className={`rounded-xl p-4 text-sm flex items-start gap-3 ${lossKg > 0 ? 'bg-warning-50 border border-warning-200' : 'bg-success-50 border border-success-200'}`}>
                 {lossKg > 0
@@ -338,29 +372,87 @@ export default function IncomingDeliveries() {
                 <div>
                   {lossKg > 0 ? (
                     <>
-                      <p className="font-semibold text-warning-800">Loss detected: {lossKg.toLocaleString()} kg ({lossPct}%)</p>
-                      <p className="text-warning-700 text-xs mt-0.5">Please document the reason below.</p>
+                      <p className="font-semibold text-warning-800">
+                        {lossKg.toLocaleString()} kg of <strong>{confirmTarget?.crop_name}</strong> unaccounted — {lossPct}% of expected quantity.
+                      </p>
+                      <p className="text-warning-700 text-xs mt-0.5">Specify below exactly what happened to these {lossKg.toLocaleString()} kg.</p>
                     </>
                   ) : (
-                    <p className="font-semibold text-success-700">Full quantity received — no loss.</p>
+                    <p className="font-semibold text-success-700">Full quantity received — no shortfall.</p>
                   )}
                 </div>
               </div>
             )}
 
+            {/* ── Structured shortfall documentation ─────────────────── */}
             {lossKg > 0 && (
-              <div>
-                <label className="label">Loss reason *</label>
-                <select className="input" required value={confirmForm.loss_reason}
-                  onChange={e => setConfirmForm(f => ({ ...f, loss_reason: e.target.value }))}>
-                  <option value="">Select reason…</option>
-                  <option value="SPOILAGE">Spoilage / Rot</option>
-                  <option value="SPILLAGE">Spillage in transit</option>
-                  <option value="THEFT">Theft</option>
-                  <option value="MOISTURE_LOSS">Moisture loss</option>
-                  <option value="WEIGHT_DISCREPANCY">Weight discrepancy</option>
-                  <option value="OTHER">Other</option>
-                </select>
+              <div className="space-y-4 border border-warning-200 rounded-xl p-4 bg-warning-50/30">
+                <div>
+                  <label className="label text-sm font-semibold">What happened to the missing {lossKg.toLocaleString()} kg of {confirmTarget?.crop_name}? *</label>
+                  <div className="space-y-2 mt-2">
+                    {[
+                      { value: 'TRANSIT_LOSS', label: 'Lost during transport', desc: 'The cooperative dispatched the full quantity — it was lost, damaged, or spoiled between pickup and here.' },
+                      { value: 'NOT_DISPATCHED', label: 'Never dispatched by cooperative', desc: 'The cooperative did not load this quantity — it was not ready, rejected at loading, or still at the cooperative.' },
+                    ].map(opt => (
+                      <label key={opt.value}
+                        className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                          confirmForm.shortfall_type === opt.value
+                            ? 'border-primary-400 bg-primary-50'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}>
+                        <input type="radio" name="shortfall_type" value={opt.value} required
+                          checked={confirmForm.shortfall_type === opt.value}
+                          onChange={e => setConfirmForm(f => ({ ...f, shortfall_type: e.target.value }))}
+                          className="mt-0.5 flex-shrink-0 accent-primary-600" />
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{opt.label}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Path A: Transit loss */}
+                {confirmForm.shortfall_type === 'TRANSIT_LOSS' && (
+                  <div>
+                    <label className="label">Specific cause of loss during transport *</label>
+                    <select className="input" required value={confirmForm.transit_loss_reason}
+                      onChange={e => setConfirmForm(f => ({ ...f, transit_loss_reason: e.target.value }))}>
+                      <option value="">Select cause…</option>
+                      <option value="SPOILAGE">Spoilage / Rot — temperature or time exceeded safe threshold</option>
+                      <option value="SPILLAGE">Spillage — produce spilled from packaging or vehicle</option>
+                      <option value="PHYSICAL_DAMAGE">Physical damage — bruising, crushing during handling</option>
+                      <option value="THEFT">Theft — produce stolen en route</option>
+                      <option value="MOISTURE_LOSS">Moisture loss — natural weight reduction over transit time</option>
+                      <option value="WEIGHT_DISCREPANCY">Weight discrepancy — dispatched weight does not match received weight on scale</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Path B: Not dispatched by cooperative */}
+                {confirmForm.shortfall_type === 'NOT_DISPATCHED' && (
+                  <div className="space-y-3">
+                    <div className="bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-600">
+                      <p className="font-semibold text-gray-800 mb-1">Shortfall being reported to cooperative:</p>
+                      <p><strong>{confirmTarget?.crop_name}</strong> — <strong>{lossKg.toLocaleString()} kg</strong> not delivered</p>
+                      <p className="text-xs text-gray-400 mt-1">A formal notification will be sent to the cooperative with these specifics.</p>
+                    </div>
+                    <div>
+                      <label className="label">Why was this quantity not dispatched? *</label>
+                      <select className="input" required value={confirmForm.not_dispatched_reason}
+                        onChange={e => setConfirmForm(f => ({ ...f, not_dispatched_reason: e.target.value }))}>
+                        <option value="">Select reason…</option>
+                        <option value="STOCK_UNAVAILABLE">Stock unavailable — cooperative did not have the quantity ready</option>
+                        <option value="QUALITY_REJECTED_AT_LOADING">Quality rejected at loading — our driver refused this quantity due to quality below agreed grade</option>
+                        <option value="NOT_LOADED_BY_COOPERATIVE">Not loaded — cooperative failed to load this quantity before departure</option>
+                        <option value="PARTIAL_AGREEMENT">Partial agreement — cooperative and driver agreed to send a reduced quantity</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -417,21 +509,50 @@ export default function IncomingDeliveries() {
                       </div>
                     </div>
                     {lossKg > 0 && (
-                      <>
-                        <p className="text-xs font-medium text-warning-700 flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Loss: {lossKg.toLocaleString()} kg ({lossPct}%)
+                      <div className="space-y-2 pt-1 border-t border-warning-200">
+                        <p className="text-xs font-semibold text-warning-700 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> {lossKg.toLocaleString()} kg of <strong>{d.crop_name}</strong> unaccounted ({lossPct}%) — what happened to this specific batch?
                         </p>
-                        <select className="input text-sm" required value={form.loss_reason || ''}
-                          onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], loss_reason: e.target.value } }))}>
-                          <option value="">Select loss reason…</option>
-                          <option value="SPOILAGE">Spoilage / Rot</option>
-                          <option value="SPILLAGE">Spillage in transit</option>
-                          <option value="THEFT">Theft</option>
-                          <option value="MOISTURE_LOSS">Moisture loss</option>
-                          <option value="WEIGHT_DISCREPANCY">Weight discrepancy</option>
-                          <option value="OTHER">Other</option>
-                        </select>
-                      </>
+                        {/* Shortfall type — per batch, independent */}
+                        <div className="space-y-1.5">
+                          {[
+                            { v: 'TRANSIT_LOSS', label: 'Lost during transport (this batch)' },
+                            { v: 'NOT_DISPATCHED', label: 'Never dispatched by cooperative (this batch)' },
+                          ].map(opt => (
+                            <label key={opt.v} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs ${form.shortfall_type === opt.v ? 'border-primary-400 bg-primary-50' : 'border-gray-200 bg-white'}`}>
+                              <input type="radio" name={`shortfall_type_${d.id}`} value={opt.v} required
+                                checked={form.shortfall_type === opt.v}
+                                onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], shortfall_type: e.target.value } }))}
+                                className="accent-primary-600 flex-shrink-0" />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                        {form.shortfall_type === 'TRANSIT_LOSS' && (
+                          <select className="input text-sm" required value={form.transit_loss_reason || ''}
+                            onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], transit_loss_reason: e.target.value } }))}>
+                            <option value="">Cause of transit loss…</option>
+                            <option value="SPOILAGE">Spoilage / Rot</option>
+                            <option value="SPILLAGE">Spillage</option>
+                            <option value="PHYSICAL_DAMAGE">Physical damage</option>
+                            <option value="THEFT">Theft</option>
+                            <option value="MOISTURE_LOSS">Moisture loss</option>
+                            <option value="WEIGHT_DISCREPANCY">Weight discrepancy</option>
+                            <option value="OTHER">Other</option>
+                          </select>
+                        )}
+                        {form.shortfall_type === 'NOT_DISPATCHED' && (
+                          <select className="input text-sm" required value={form.not_dispatched_reason || ''}
+                            onChange={e => setBulkForms(prev => ({ ...prev, [d.id]: { ...prev[d.id], not_dispatched_reason: e.target.value } }))}>
+                            <option value="">Why wasn't this batch dispatched?</option>
+                            <option value="STOCK_UNAVAILABLE">Stock unavailable at cooperative</option>
+                            <option value="QUALITY_REJECTED_AT_LOADING">Quality rejected at loading</option>
+                            <option value="NOT_LOADED_BY_COOPERATIVE">Not loaded by cooperative before departure</option>
+                            <option value="PARTIAL_AGREEMENT">Reduced quantity agreed at loading</option>
+                            <option value="OTHER">Other</option>
+                          </select>
+                        )}
+                      </div>
                     )}
                   </div>
                 )

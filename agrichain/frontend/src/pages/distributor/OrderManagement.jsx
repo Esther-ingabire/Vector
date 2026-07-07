@@ -3,49 +3,97 @@ import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, X
 import DataTable from '../../components/ui/DataTable.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import Modal from '../../components/ui/Modal.jsx'
+import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import { cooperativesApi } from '../../api/cooperatives.js'
 import toast from 'react-hot-toast'
 import { useLocation } from 'react-router-dom'
 
 const STATUS_LABEL = {
-  PENDING: 'Pending', ACCEPTED: 'Accepted', DECLINED: 'Declined',
-  IN_TRANSIT: 'In transit', DELIVERED: 'Delivered', CONFIRMED: 'Confirmed',
+  PENDING:     'Pending',
+  ACCEPTED:    'Accepted',
+  NEGOTIATING: 'Negotiating',
+  DECLINED:    'Declined',
+  COMPLETED:   'Completed',
+  CANCELLED:   'Cancelled',
 }
 
 const NOTICE_BLANK = { title: '', crop_name: '', quantity_available_kg: '', price_per_kg: '', available_from: '', available_until: '', pickup_location: '', notes: '' }
 
-const CROP_IMAGES = {
-  coffee:          'https://images.unsplash.com/photo-1447933601403-0c6688de566e?w=400&h=180&fit=crop',
-  tea:             'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=180&fit=crop',
-  maize:           'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=180&fit=crop',
-  corn:            'https://images.unsplash.com/photo-1500622944204-b135684e99fd?w=400&h=180&fit=crop',
-  potatoes:        'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=180&fit=crop',
-  'sweet potatoes':'https://images.unsplash.com/photo-1518977822534-7049a61ee0c2?w=400&h=180&fit=crop',
-  beans:           'https://images.unsplash.com/photo-1628451657124-26726ca61d75?w=400&h=180&fit=crop',
-  avocados:        'https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=180&fit=crop',
-  tomatoes:        'https://images.unsplash.com/photo-1558818498-28c1e002b655?w=400&h=180&fit=crop',
-  bananas:         'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=180&fit=crop',
-  sorghum:         'https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?w=400&h=180&fit=crop',
-  rice:            'https://images.unsplash.com/photo-1536304929831-ee1ca9d44906?w=400&h=180&fit=crop',
+// Each crop has a POOL of distinct images.
+// getCropImage uses the cooperative's own ID to pick from the pool,
+// so two coops with the same crop will show different images.
+const CROP_POOLS = {
+  maize:            ['https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&h=180&fit=crop'],
+  corn:             ['https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=400&h=180&fit=crop'],
+  tomatoes:         ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1561136594-7f68813d8f56?w=400&h=180&fit=crop'],
+  tomato:           ['https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1561136594-7f68813d8f56?w=400&h=180&fit=crop'],
+  potatoes:         ['https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1585164279323-bc69a7a60db6?w=400&h=180&fit=crop'],
+  'sweet potatoes': ['https://images.unsplash.com/photo-1508702438698-8a7d24e2f90e?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1596097635121-14b63b7a0c19?w=400&h=180&fit=crop'],
+  beans:            ['https://images.unsplash.com/photo-1506976785307-8732e854ad03?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=180&fit=crop'],
+  avocados:         ['https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=400&h=180&fit=crop'],
+  avocado:          ['https://images.unsplash.com/photo-1519162808019-7de1683fa2ad?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=400&h=180&fit=crop'],
+  bananas:          ['https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1528825871115-3581a5387919?w=400&h=180&fit=crop'],
+  banana:           ['https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1528825871115-3581a5387919?w=400&h=180&fit=crop'],
+  coffee:           ['https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1559056199-641a0ac8b55e?w=400&h=180&fit=crop'],
+  tea:              ['https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=400&h=180&fit=crop'],
+  sorghum:          ['https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=180&fit=crop'],
+  rice:             ['https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400&h=180&fit=crop'],
+  cassava:          ['https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=400&h=180&fit=crop',
+                     'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=180&fit=crop'],
 }
 
 const FALLBACK_IMAGES = [
   'https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&h=180&fit=crop',
-  'https://images.unsplash.com/photo-1500595046743-cd271d694d30?w=400&h=180&fit=crop',
-  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1493770348161-369560ae357d?w=400&h=180&fit=crop',
   'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=400&h=180&fit=crop',
-  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1435373996065-9a5e9e8e5e4f?w=400&h=180&fit=crop',
   'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=180&fit=crop',
+  'https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=400&h=180&fit=crop',
 ]
+
+// Force a specific primary crop for cooperatives where M2M ordering
+// doesn't reflect what they're best known for.
+const PRIMARY_CROP_OVERRIDE = {
+  101: 'coffee',   // Rubavu Farmers Union — Coffee, Bananas
+}
 
 function getCropImage(crops = [], coopId = 0) {
   const list = typeof crops === 'string'
     ? crops.split(',').map(s => s.trim())
-    : crops
+    : (Array.isArray(crops) ? crops : [])
+
+  // If this coop has a forced primary crop, look that up first
+  const forcedKey = PRIMARY_CROP_OVERRIDE[coopId]
+  if (forcedKey) {
+    const pool = CROP_POOLS[forcedKey]
+      || CROP_POOLS[Object.keys(CROP_POOLS).find(k => forcedKey.includes(k) || k.includes(forcedKey))]
+    if (pool) return pool[Math.abs(coopId) % pool.length]
+  }
+
+  // Otherwise use the first crop's pool
   for (const c of list) {
-    const img = CROP_IMAGES[(c || '').toLowerCase()]
-    if (img) return img
+    const key = (c?.name || c || '').toLowerCase().trim()
+    const pool = CROP_POOLS[key]
+      || CROP_POOLS[Object.keys(CROP_POOLS).find(k => key.includes(k) || k.includes(key))]
+    if (pool) return pool[Math.abs(coopId) % pool.length]
   }
   return FALLBACK_IMAGES[Math.abs(coopId) % FALLBACK_IMAGES.length]
 }
@@ -302,7 +350,21 @@ export default function OrderManagement() {
     { key: 'crop_name', label: 'Crop', render: v => <span className="text-sm text-gray-700">{v || '—'}</span> },
     { key: 'quantity_kg', label: 'Quantity', render: v => v ? <span className="font-medium">{(Number(v)/1000).toFixed(1)} tons</span> : '—' },
     { key: 'required_delivery_date', label: 'Delivery Date', render: v => v ? new Date(v).toLocaleDateString('en-RW', { year: 'numeric', month: 'short', day: 'numeric' }) : '—' },
-    { key: 'status', label: 'Status', render: v => <StatusBadge status={v} /> },
+    { key: 'status', label: 'Status', render: (v, row) => (
+      <div className="space-y-1">
+        <StatusBadge status={v} />
+        {v === 'DECLINED' && row.cooperative_response_notes && (
+          <p className="text-xs text-danger-600 bg-danger-50 rounded px-2 py-1 max-w-[200px] leading-snug">
+            {row.cooperative_response_notes}
+          </p>
+        )}
+        {v === 'NEGOTIATING' && row.cooperative_response_notes && (
+          <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1 max-w-[200px] leading-snug">
+            {row.cooperative_response_notes}
+          </p>
+        )}
+      </div>
+    )},
     { key: '_actions', label: 'Actions', render: (_, row) => (
       <button
         onClick={() => setSelectedOrder(row)}
@@ -368,7 +430,7 @@ export default function OrderManagement() {
               <input value={search} onChange={e => setSearch(e.target.value)} className="input pl-9 py-1.5 text-sm" placeholder="Search cooperative or crop…" />
             </div>
             <div className="flex gap-1 flex-wrap">
-              {['all', 'PENDING', 'ACCEPTED', 'IN_TRANSIT', 'DELIVERED', 'DECLINED'].map(f => (
+              {['all', 'PENDING', 'ACCEPTED', 'NEGOTIATING', 'DECLINED', 'COMPLETED', 'CANCELLED'].map(f => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-colors ${statusFilter === f ? 'bg-primary-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
                   {f === 'all' ? 'All' : STATUS_LABEL[f]}
@@ -727,7 +789,7 @@ export default function OrderManagement() {
                 <input type="number" className="input" value={form.quantity_kg} onChange={e => setForm(f => ({ ...f, quantity_kg: e.target.value }))} required min="1" />
               </div>
               <div>
-                <label className="label">Required by *</label>
+                <label className="label">Delivery deadline *</label>
                 <input type="date" className="input" value={form.required_delivery_date} onChange={e => setForm(f => ({ ...f, required_delivery_date: e.target.value }))} required />
               </div>
             </div>
@@ -770,7 +832,15 @@ export default function OrderManagement() {
             </div>
             <div>
               <label className="label">Pickup location</label>
-              <input className="input" value={noticeForm.pickup_location} onChange={e => setNoticeForm(f => ({ ...f, pickup_location: e.target.value }))} placeholder="e.g. Kigali Warehouse A" />
+              <PlaceSearchInput
+                placeholder="Search pickup location…"
+                onSelect={({ address }) => setNoticeForm(f => ({ ...f, pickup_location: address }))}
+              />
+              {noticeForm.pickup_location && (
+                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {noticeForm.pickup_location}
+                </p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -798,12 +868,12 @@ export default function OrderManagement() {
         {selectedOrder && (() => {
           const o = selectedOrder
           const statusColors = {
-            PENDING: 'bg-warning-50 text-warning-700 border-warning-200',
-            ACCEPTED: 'bg-success-50 text-success-700 border-success-200',
-            DECLINED: 'bg-danger-50 text-danger-700 border-danger-200',
-            IN_TRANSIT: 'bg-blue-50 text-blue-700 border-blue-200',
-            DELIVERED: 'bg-primary-50 text-primary-700 border-primary-200',
-            CONFIRMED: 'bg-success-50 text-success-700 border-success-200',
+            PENDING:     'bg-warning-50 text-warning-700 border-warning-200',
+            ACCEPTED:    'bg-success-50 text-success-700 border-success-200',
+            NEGOTIATING: 'bg-blue-50 text-blue-700 border-blue-200',
+            DECLINED:    'bg-danger-50 text-danger-700 border-danger-200',
+            COMPLETED:   'bg-primary-50 text-primary-700 border-primary-200',
+            CANCELLED:   'bg-gray-100 text-gray-500 border-gray-200',
           }
           const statusCls = statusColors[o.status] || 'bg-gray-100 text-gray-600 border-gray-200'
           return (
@@ -843,7 +913,7 @@ export default function OrderManagement() {
                   <p className="font-semibold text-gray-900">Grade {o.quality_grade_required || '—'}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Required by</p>
+                  <p className="text-xs text-gray-400 mb-0.5">Delivery deadline</p>
                   <p className="font-semibold text-gray-900">
                     {o.required_delivery_date ? new Date(o.required_delivery_date).toLocaleDateString('en-RW', { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}
                   </p>
@@ -856,20 +926,38 @@ export default function OrderManagement() {
                 </div>
               </div>
 
-              {o.additional_notes && (
+              {/* Cooperative's response — shown for DECLINED and NEGOTIATING */}
+              {o.cooperative_response_notes && (
                 <>
                   <hr className="border-gray-100" />
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1">Notes</p>
-                    <p className="text-sm text-gray-700 bg-gray-50 rounded-xl px-4 py-3">{o.additional_notes}</p>
+                  <div className={`rounded-xl px-4 py-3 border ${
+                    o.status === 'DECLINED'
+                      ? 'bg-danger-50 border-danger-200'
+                      : o.status === 'NEGOTIATING'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <p className={`text-xs font-semibold mb-1 ${
+                      o.status === 'DECLINED' ? 'text-danger-600'
+                      : o.status === 'NEGOTIATING' ? 'text-blue-600'
+                      : 'text-gray-500'
+                    }`}>
+                      {o.status === 'DECLINED' ? 'Reason for declining' : o.status === 'NEGOTIATING' ? "Cooperative's counter-proposal" : "Cooperative's response"}
+                    </p>
+                    <p className="text-sm text-gray-700">{o.cooperative_response_notes}</p>
                   </div>
                 </>
               )}
 
-              <hr className="border-gray-100" />
-              <p className="text-xs text-gray-400 text-center">
-                This is an internal produce request record. It becomes a binding agreement once the cooperative accepts it.
-              </p>
+              {o.additional_notes && (
+                <>
+                  <hr className="border-gray-100" />
+                  <div>
+                    <p className="text-xs text-gray-400 mb-1">Your notes</p>
+                    <p className="text-sm text-gray-700 bg-gray-50 rounded-xl px-4 py-3">{o.additional_notes}</p>
+                  </div>
+                </>
+              )}
 
               <button onClick={() => setSelectedOrder(null)} className="btn-secondary w-full">Close</button>
             </div>

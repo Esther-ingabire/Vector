@@ -3,11 +3,22 @@ from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, Inci
 
 
 class VehicleSerializer(serializers.ModelSerializer):
+    # True when this vehicle has a trip that has been picked up but not yet delivered —
+    # used by the dispatch UI to grey-out trucks that are currently on the road.
+    is_busy = serializers.SerializerMethodField()
+
     class Meta:
         model = Vehicle
         fields = ['id', 'vehicle_type', 'plate_number', 'capacity_kg',
-                  'operating_districts', 'has_iot_temperature', 'iot_device_id', 'is_active']
-        read_only_fields = ['id']
+                  'operating_districts', 'has_iot_temperature', 'iot_device_id', 'is_active',
+                  'is_busy']
+        read_only_fields = ['id', 'is_busy']
+
+    def get_is_busy(self, obj):
+        return obj.transport_requests.filter(
+            trip__pickup_confirmed_at__isnull=False,
+            trip__delivery_confirmed_at__isnull=True,
+        ).exists()
 
 
 class TransporterSerializer(serializers.ModelSerializer):

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Building2, Save, Truck, Snowflake, MapPin, Users, Phone, Mail, Star } from 'lucide-react'
+import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
+import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
 import { transportApi } from '../../api/transport.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
@@ -151,14 +153,22 @@ export default function CompanyProfile() {
             </div>
             <div>
               <label className="label">Base Location</label>
-              <input className="input" placeholder="e.g. Kacyiru, Kigali" value={form.base_location}
-                onChange={e => setForm(f => ({ ...f, base_location: e.target.value }))} />
+              <PlaceSearchInput
+                placeholder="Search base location…"
+                onSelect={({ address }) => setForm(f => ({ ...f, base_location: address }))}
+              />
+              {form.base_location && (
+                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> {form.base_location}
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Operating Districts</label>
-              <input className="input" placeholder="e.g. Musanze, Kigali, Rubavu" value={form.operating_districts}
-                onChange={e => setForm(f => ({ ...f, operating_districts: e.target.value }))} />
-              <p className="text-xs text-gray-400 mt-1">Comma-separated</p>
+              <DistrictPicker
+                value={Array.isArray(form.operating_districts) ? form.operating_districts : (form.operating_districts || '').split(',').map(s => s.trim()).filter(Boolean)}
+                onChange={val => setForm(f => ({ ...f, operating_districts: val }))}
+              />
             </div>
             <p className="text-xs text-gray-400">Phone and email come from your account — update those in Settings.</p>
             <div className="flex gap-3 pt-1">

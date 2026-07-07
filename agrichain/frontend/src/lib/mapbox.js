@@ -69,6 +69,31 @@ export async function searchSuggest(query, sessionToken) {
   }
 }
 
+/**
+ * Reverse geocode a lat/lon into a human-readable place name.
+ * Returns the most specific meaningful name available — typically a sector or
+ * district level within Rwanda (e.g. "Kinigi, Musanze, Northern Province").
+ * Returns null if the token is missing or the call fails.
+ */
+export async function reverseGeocode(lat, lon) {
+  if (!MAPBOX_TOKEN) return null
+  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json` +
+    `?access_token=${MAPBOX_TOKEN}&types=neighborhood,locality,place,district,region&language=en&country=rw&limit=1`
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    const feature = data.features?.[0]
+    if (!feature) return null
+    // Build a concise name: "Neighbourhood, City" or just "City, Province"
+    const ctx = feature.context || []
+    const parts = [feature.text, ...ctx.slice(0, 2).map(c => c.text)].filter(Boolean)
+    return parts.join(', ')
+  } catch {
+    return null
+  }
+}
+
 /** Resolve a suggestion's `mapbox_id` (from searchSuggest) into full coordinates. */
 export async function searchRetrieve(mapboxId, sessionToken) {
   if (!MAPBOX_TOKEN || !mapboxId) return null

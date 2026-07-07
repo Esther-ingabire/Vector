@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Package, Inbox, Truck, Thermometer, AlertTriangle, MapPin, Star, Snowflake, CheckCircle, XCircle } from 'lucide-react'
 import KPICard from '../../components/ui/KPICard.jsx'
+import DeclineReasonPicker from '../../components/ui/DeclineReasonPicker.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import { cooperativesApi } from '../../api/cooperatives.js'
 import { distributionApi } from '../../api/distribution.js'
@@ -87,10 +88,15 @@ export default function CooperativeDashboard() {
     return acc
   }, {})
 
-  const handleQuickAction = async (requestId, action) => {
+  const [decliningReqId, setDecliningReqId] = useState(null)
+
+  const handleQuickAction = async (requestId, action, reason = '') => {
     try {
-      const fn = action === 'accept' ? distributionApi.acceptProduceRequest : distributionApi.declineProduceRequest
-      await fn(requestId, {})
+      if (action === 'accept') {
+        await distributionApi.acceptProduceRequest(requestId, {})
+      } else {
+        await distributionApi.declineProduceRequest(requestId, { notes: reason || 'Declined' })
+      }
       setPendingRequests(prev => prev.filter(r => r.id !== requestId))
       toast.success(`Request ${action === 'accept' ? 'accepted' : 'declined'}`)
     } catch {
@@ -181,12 +187,21 @@ export default function CooperativeDashboard() {
                       <CheckCircle className="w-3 h-3" /> Accept
                     </button>
                     <button
-                      onClick={() => handleQuickAction(req.id, 'decline')}
+                      onClick={() => setDecliningReqId(req.id)}
                       className="flex items-center gap-1 px-2.5 py-1 bg-white text-danger-500 border border-danger-200 text-xs font-medium rounded-lg hover:bg-danger-50 transition-colors"
                     >
                       <XCircle className="w-3 h-3" /> Decline
                     </button>
                   </div>
+                  {decliningReqId === req.id && (
+                    <div className="mt-2">
+                      <DeclineReasonPicker
+                        quickReasons={['Crop not in season', 'Stock insufficient', 'Quality grade unavailable', 'Delivery date not feasible']}
+                        onConfirm={reason => { setDecliningReqId(null); handleQuickAction(req.id, 'decline', reason) }}
+                        onCancel={() => setDecliningReqId(null)}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -93,7 +93,9 @@ function LossCard({ label, pct, batches, icon: Icon, color, textColor, borderCol
   )
 }
 
-export default function DistributionAnalytics() {
+// `embedded` prop — when true, hides the standalone page header and export buttons
+// since the Reports page provides its own context and download options.
+export default function DistributionAnalytics({ embedded = false }) {
   const [comparison, setComparison] = useState(MOCK_COMPARISON)
   const [monthly] = useState(MOCK_MONTHLY)
   const [cropLoss] = useState(MOCK_CROP_LOSS)
@@ -136,20 +138,30 @@ export default function DistributionAnalytics() {
 
   return (
     <div className="space-y-8 print:space-y-6">
-      <div className="flex items-center justify-between print:hidden">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Distribution Analytics</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Loss comparison across delivery methods and crop performance.</p>
+      {!embedded && (
+        <div className="flex items-center justify-between print:hidden">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Distribution Analytics</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Loss comparison across delivery methods and crop performance.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+            <button onClick={() => window.print()} className="btn-primary flex items-center gap-2">
+              <Download className="w-4 h-4" /> Print / PDF
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
-          <button onClick={() => window.print()} className="btn-primary flex items-center gap-2">
-            <Download className="w-4 h-4" /> Print / PDF
-          </button>
+      )}
+      {embedded && (
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div>
+            <p className="text-base font-semibold text-gray-900">Distribution Analytics</p>
+            <p className="text-xs text-gray-400 mt-0.5">Delivery method comparison and crop-level loss breakdown</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Loss Comparison cards — Figma layout */}
       <section className="space-y-4">

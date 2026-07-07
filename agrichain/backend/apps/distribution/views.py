@@ -288,26 +288,47 @@ class MarketAgentListView(APIView):
     permission_classes = [IsDistributor]
 
     def get(self, request):
+        from django.db.models import Count, Avg, Q
         dist = _get_or_create_distributor(request.user)
         include_pending = request.query_params.get('include_pending') == 'true'
         qs = DistributorMarketAgentLink.objects.filter(distributor=dist)
         if not include_pending:
             qs = qs.filter(is_active=True)
         qs = qs.select_related('market_agent__user')
-        data = [
-            {
-                'id': link.id,
-                'market_agent_id': link.market_agent_id,
-                'name': str(link.market_agent),
-                'stall_number': link.market_agent.stall_number,
-                'market_name': link.market_agent.market_name,
-                'district': link.market_agent.market_district,
-                'linked_at': link.linked_at,
-                'is_active': link.is_active,
-                'notes': link.notes,
-            }
-            for link in qs
-        ]
+        data = []
+        for link in qs:
+            agent = link.market_agent
+            from apps.market_agents.models import CollectionConfirmation
+            orders = Order.objects.filter(distributor=dist, market_agent=agent)
+            order_agg = orders.aggregate(
+                total=Count('id'),
+                completed=Count('id', filter=Q(status='COMPLETED')),
+                self_collect=Count('id', filter=Q(delivery_method='SELF_COLLECTION')),
+                dist_deliver=Count('id', filter=Q(delivery_method='TRANSPORTER_DELIVERY')),
+            )
+            # Self-transport loss: what the agent loses moving produce from us to their stall
+            # Lower for distributor-delivered orders (we handle transport), higher for self-collect
+            loss_agg = CollectionConfirmation.objects.filter(
+                order__distributor=dist, market_agent=agent
+            ).aggregate(avg_loss=Avg('self_transport_loss_pct'))
+            data.append({
+                'id':               link.id,
+                'market_agent_id':  link.market_agent_id,
+                'name':             str(agent),
+                'phone':            agent.user.phone_number,
+                'email':            agent.user.email,
+                'stall_number':     agent.stall_number,
+                'market_name':      agent.market_name,
+                'district':         agent.market_district,
+                'linked_at':        link.linked_at,
+                'is_active':        link.is_active,
+                'notes':            link.notes,
+                'total_orders':     order_agg['total'],
+                'completed_orders': order_agg['completed'],
+                'self_collect_orders':  order_agg['self_collect'],
+                'dist_deliver_orders':  order_agg['dist_deliver'],
+                'avg_self_transport_loss_pct': round(float(loss_agg['avg_loss'] or 0), 1),
+            })
         return Response(data)
 
 
