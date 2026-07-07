@@ -16,8 +16,11 @@ def simulate_sensor_readings():
 
     now = timezone.now()
 
-    # Cold storage facility readings
-    for facility in ColdStorageFacility.objects.filter(has_iot_sensor=True, is_active=True):
+    # Cold storage facility readings — skip facilities that already have a real device
+    # assigned (sensor_device_id set), so simulated data doesn't mix with real ESP8266 posts.
+    for facility in ColdStorageFacility.objects.filter(
+        has_iot_sensor=True, is_active=True, sensor_device_id=""
+    ):
         base_temp = 8.0
         temp = base_temp + random.gauss(0, 2.0)
         humidity = 75.0 + random.gauss(0, 5.0)
@@ -28,8 +31,11 @@ def simulate_sensor_readings():
             timestamp=now,
         )
 
-    # Active refrigerated vehicle readings
+    # Active refrigerated vehicle readings — skip trips that are already picked up and in
+    # transit, since those get real sensor data mirrored in from the ESP8266 storage device
+    # (see IoTReadingViewSet.perform_create) and shouldn't also receive fake simulated readings.
     active_trips = Trip.objects.filter(
+        pickup_confirmed_at__isnull=True,
         delivery_confirmed_at__isnull=True,
         transport_request__vehicle__has_iot_temperature=True
     ).select_related("transport_request__vehicle")
@@ -43,4 +49,4 @@ def simulate_sensor_readings():
             timestamp=now,
         )
 
-    return f"Simulated IoT readings at {now.strftime(\'%H:%M\')}"
+    return f"Simulated IoT readings at {now.strftime('%H:%M')}"

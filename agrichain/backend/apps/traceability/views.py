@@ -173,6 +173,32 @@ class BatchViewSet(viewsets.ModelViewSet):
             defaults={'scanned_by': request.user},
         )
 
+        # ── Shortfall notification to cooperative ───────────────────────────
+        # If the distributor flagged that items were never dispatched (as opposed to
+        # lost in transit), notify the cooperative immediately with the specific details
+        # so they can investigate and respond.
+        shortfall_type = request.data.get('shortfall_type')
+        loss_reason    = request.data.get('loss_reason', '')
+        loss_kg        = float(batch.transit_loss_leg1_kg or 0)
+
+        if shortfall_type == 'NOT_DISPATCHED' and loss_kg > 0 and batch.cooperative:
+            from apps.notifications.services import notify
+            from apps.notifications.models import Notification
+            crop_name   = batch.crop.name if batch.crop else 'produce'
+            dist_name   = str(dist) if dist else 'Distributor'
+            reason_code = loss_reason.replace('NOT_DISPATCHED:', '').strip().split('—')[0].strip()
+            notify(
+                batch.cooperative.manager,
+                Notification.NotificationType.BATCH_DELIVERED,
+                f'Shortfall Report — Batch {str(batch.batch_id)[:8].upper()}',
+                f'{dist_name} confirmed receipt of Batch {str(batch.batch_id)[:8].upper()} '
+                f'but reports {loss_kg:,.0f} kg of {crop_name} were NOT dispatched from your cooperative. '
+                f'Reason given: {reason_code}. '
+                f'Expected: {float(batch.dispatch_weight_kg):,.0f} kg | Received: {float(batch.weight_at_distributor_kg or 0):,.0f} kg. '
+                f'Please review and confirm whether this quantity was dispatched.',
+                related_object_type='batch', related_object_id=batch.id,
+            )
+
         return Response(BatchSerializer(batch).data)
 
 

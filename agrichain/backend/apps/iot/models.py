@@ -80,3 +80,8 @@ class VehicleIoTReading(models.Model):
         threshold = (crop.safe_temp_max_amber if crop and crop.safe_temp_max_amber is not None else 8.0)
         self.is_breach = self.temperature_celsius > threshold
         super().save(*args, **kwargs)
+        
+
+
+
+

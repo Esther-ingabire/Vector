@@ -301,9 +301,16 @@ class TransportRequestViewSet(viewsets.ModelViewSet):
         vehicle = None
         vehicle_id = request.data.get('vehicle')
         if vehicle_id:
-            vehicle = Vehicle.objects.filter(id=vehicle_id, transporter=driver).first()
+            # Vehicle must belong to the company fleet (owned by the company itself OR
+            # by any of its registered drivers) — not restricted to the specific driver
+            # chosen, since the company decides which truck to send per job.
+            from django.db.models import Q as _Q
+            vehicle = Vehicle.objects.filter(
+                _Q(id=vehicle_id),
+                _Q(transporter=company) | _Q(transporter__parent_company=company),
+            ).first()
             if not vehicle:
-                return Response({'detail': 'Vehicle not found under that driver.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'detail': 'Vehicle not found in your company fleet.'}, status=status.HTTP_400_BAD_REQUEST)
 
         req.transporter = driver
         req.vehicle = vehicle
