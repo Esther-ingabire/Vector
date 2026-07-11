@@ -55,7 +55,7 @@ class ExportReportView(APIView):
       TRANSPORTER         : jobs | performance
       TRANSPORT_COMPANY   : jobs | performance
       DISTRIBUTOR         : orders | delivery-comparison | waste
-      MARKET_AGENT        : collections | waste
+      MARKET_AGENT        : collections | waste | loss-summary
       MINAGRI_OFFICER     : national | districts | crops | transport
       ADMIN               : national | districts | crops | transport | users
       WAREHOUSE_MANAGER   : facilities | rentals
@@ -90,9 +90,10 @@ class ExportReportView(APIView):
             'complete':            '_dist_complete',
         },
         'MARKET_AGENT': {
-            'collections': '_agent_collections',
-            'waste':       '_agent_waste',
-            'complete':    '_agent_complete',
+            'collections':  '_agent_collections',
+            'waste':        '_agent_waste',
+            'complete':     '_agent_complete',
+            'loss-summary': '_agent_loss_summary',
         },
         'MINAGRI_OFFICER': {
             'national':  '_national',
@@ -893,6 +894,55 @@ class ExportReportView(APIView):
                 o.status if o else '',
             ])
         return f'Complete Activity Report — {agent}', headers, rows, 'market_agent_complete_report'
+
+    def _agent_loss_summary(self, request):
+        from apps.market_agents.models import CollectionConfirmation, WasteReport
+        from django.db.models import Avg
+        try:
+            agent = request.user.market_agent_profile
+        except Exception:
+            return Response({'detail': 'No market agent profile linked.'}, status=400)
+
+        all_collections = CollectionConfirmation.objects.filter(market_agent=agent).select_related(
+            'order__collection_notice__crop'
+        )
+        avg_loss = all_collections.aggregate(avg=Avg('self_transport_loss_pct'))['avg'] or 0
+        avg_waste = WasteReport.objects.filter(market_agent=agent).aggregate(
+            avg=Avg('market_spoilage_loss_pct')
+        )['avg'] or 0
+
+        high_risk = (
+            all_collections
+            .filter(self_transport_loss_pct__gt=5)
+            .order_by('-self_transport_loss_pct')
+        )
+
+        headers = [
+            'Date', 'Crop', 'Collected (kg)', 'Arrived (kg)', 'Loss (kg)', 'Loss (%)',
+        ]
+        rows = []
+        for c in high_risk:
+            crop = (
+                c.order.collection_notice.crop.name
+                if c.order and c.order.collection_notice and c.order.collection_notice.crop
+                else ''
+            )
+            rows.append([
+                c.collected_at.strftime('%Y-%m-%d') if c.collected_at else '',
+                crop,
+                float(c.quantity_collected_kg or 0),
+                float(c.quantity_arrived_at_stall_kg or 0),
+                float(c.self_transport_loss_kg or 0),
+                float(c.self_transport_loss_pct or 0),
+            ])
+
+        title = (
+            f'Loss Summary — {agent} | '
+            f'Avg collection loss: {avg_loss:.1f}% | '
+            f'Avg waste rate: {avg_waste:.1f}% | '
+            f'High-risk collections (>5% loss): {len(rows)}'
+        )
+        return title, headers, rows, 'market_agent_loss_summary_report'
 
     # ── MINAGRI / Admin ─────────────────────────────────────────────────────
 

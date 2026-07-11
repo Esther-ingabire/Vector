@@ -127,9 +127,15 @@ class CollectionNoticeForAgentSerializer(serializers.Serializer):
         hours = self._hours_left(obj)
         crop = obj.crop
         if crop:
-            if hours <= float(crop.safe_transit_hours_red):
+            amber_h = float(crop.safe_transit_hours_amber or 999)
+            red_h   = float(crop.safe_transit_hours_red or 999)
+            # In the notice context hours_left is REMAINING time, so:
+            # < amber_h  → HIGH (so little time even self-transport risks spoilage)
+            # amber_h to red_h → AMBER (moderate urgency, consider transporter)
+            # >= red_h → LOW (plenty of time)
+            if hours < amber_h:
                 return 'HIGH'
-            if hours <= float(crop.safe_transit_hours_amber):
+            if hours < red_h:
                 return 'AMBER'
         return 'LOW'
 

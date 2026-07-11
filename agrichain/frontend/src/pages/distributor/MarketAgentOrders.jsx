@@ -381,9 +381,9 @@ export default function MarketAgentOrders() {
                       <p className="text-xs text-gray-500">
                         <span className="font-medium text-gray-700">{n.crop_name}</span>
                         {' · '}
-                        {Number(n.quantity_available_kg) >= 1000
-                          ? `${(Number(n.quantity_available_kg) / 1000).toFixed(1)} tons`
-                          : `${Number(n.quantity_available_kg)} kg`} available
+                        {Number(n.available_quantity_kg || n.quantity_available_kg) >= 1000
+                          ? `${(Number(n.available_quantity_kg || n.quantity_available_kg) / 1000).toFixed(1)} tons`
+                          : `${Number(n.available_quantity_kg || n.quantity_available_kg)} kg`} available
                         {n.price_per_kg ? ` · RWF ${Number(n.price_per_kg).toLocaleString()}/kg` : ''}
                       </p>
                       <div className="flex items-center gap-3 text-xs text-gray-400 mt-1 flex-wrap">

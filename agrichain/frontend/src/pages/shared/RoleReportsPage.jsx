@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Package, Layers, Truck, TrendingUp, ClipboardList,
+  Package, Layers, Truck, TrendingUp, TrendingDown, ClipboardList,
   BarChart2, Trash2, CheckCircle, Globe, MapPin, Leaf,
   Activity, Download, Loader, FileText, Users, Warehouse, Inbox,
   Calendar,
@@ -178,6 +178,15 @@ const CATALOG = {
       icon: Trash2,
       color: 'text-danger-600',
       bg: 'bg-danger-50',
+    },
+    {
+      type: 'loss-summary',
+      name: 'Loss Summary Report',
+      desc: 'High-risk collections where self-transport loss exceeded 5%, ranked by loss rate — plus your overall collection and waste averages.',
+      filename: 'market_agent_loss_summary_report.csv',
+      icon: TrendingDown,
+      color: 'text-warning-600',
+      bg: 'bg-warning-50',
     },
   ],
 

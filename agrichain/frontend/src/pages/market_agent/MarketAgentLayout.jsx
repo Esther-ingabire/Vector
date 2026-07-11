@@ -1,5 +1,5 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Bell, ShoppingBag, ClipboardList, Trash2, BarChart2, Settings, FileDown, Building2 } from 'lucide-react'
+import { LayoutDashboard, Bell, ShoppingBag, ClipboardList, Trash2, Settings, FileDown, Building2 } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import MarketAgentDashboard from './MarketAgentDashboard.jsx'
@@ -8,7 +8,6 @@ import OrdersPage from './OrdersPage.jsx'
 import FindDistributorsPage from './FindDistributorsPage.jsx'
 import ClaimsPage from './ClaimsPage.jsx'
 import WasteReportPage from './WasteReportPage.jsx'
-import LossSummaryPage from './LossSummaryPage.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
@@ -19,7 +18,6 @@ const navItems = [
   { to: '/market-agent/distributors', label: 'Find Distributors',  icon: Building2 },
   { to: '/market-agent/claims',   label: 'Claims',         icon: ClipboardList },
   { to: '/market-agent/waste',    label: 'Waste Report',   icon: Trash2 },
-  { to: '/market-agent/losses',   label: 'Loss Summary',   icon: BarChart2 },
   { to: '/market-agent/reports',  label: 'Reports',        icon: FileDown },
   { to: '/market-agent/settings', label: 'Settings',       icon: Settings },
 ]
@@ -39,7 +37,7 @@ export default function MarketAgentLayout() {
             <Route path="distributors"  element={<FindDistributorsPage />} />
             <Route path="claims"   element={<ClaimsPage />} />
             <Route path="waste"    element={<WasteReportPage />} />
-            <Route path="losses"   element={<LossSummaryPage />} />
+            <Route path="losses"   element={<Navigate to="/market-agent/reports" replace />} />
             <Route path="reports"  element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/market-agent" replace />} />

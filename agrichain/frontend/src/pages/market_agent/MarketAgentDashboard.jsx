@@ -78,6 +78,33 @@ export default function MarketAgentDashboard() {
         </p>
       </div>
 
+      {/* Ready to Order — placed above KPIs so the agent's primary action is the first thing they see */}
+      <div
+        className="rounded-2xl text-white p-5 flex items-center justify-between gap-4"
+        style={{ background: 'linear-gradient(135deg, #228b52 0%, #1a5c34 100%)' }}
+      >
+        <div>
+          <p className="font-bold text-lg">Ready to order?</p>
+          <p className="text-sm mt-0.5" style={{ color: 'rgba(255,255,255,0.75)' }}>
+            Browse stock listings from your linked distributors and place orders directly.
+          </p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Link to="/market-agent/stock"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-sm font-semibold transition-colors hover:bg-green-50"
+            style={{ color: '#1a5c34' }}>
+            <Bell className="w-4 h-4" /> Browse Stock
+          </Link>
+          <Link to="/market-agent/orders"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold transition-colors border"
+            style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'rgba(255,255,255,0.3)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}>
+            <ShoppingBag className="w-4 h-4" /> My Orders
+          </Link>
+        </div>
+      </div>
+
       {/* KPI cards */}
       <div className="grid grid-cols-4 gap-4">
         {kpis.map(k => {
@@ -94,26 +121,6 @@ export default function MarketAgentDashboard() {
           )
           return k.to ? <Link key={k.label} to={k.to}>{inner}</Link> : <div key={k.label}>{inner}</div>
         })}
-      </div>
-
-      {/* Place Order CTA */}
-      <div className="rounded-2xl bg-primary-900 text-white p-5 flex items-center justify-between gap-4">
-        <div>
-          <p className="font-bold text-lg">Ready to order?</p>
-          <p className="text-sm text-primary-200 mt-0.5">
-            Browse stock listings from your linked distributors and place orders directly.
-          </p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Link to="/market-agent/stock"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-primary-900 text-sm font-semibold hover:bg-primary-50 transition-colors">
-            <Bell className="w-4 h-4" /> Browse Stock
-          </Link>
-          <Link to="/market-agent/orders"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-700 text-white text-sm font-semibold hover:bg-primary-600 transition-colors border border-primary-600">
-            <ShoppingBag className="w-4 h-4" /> My Orders
-          </Link>
-        </div>
       </div>
 
       {/* Recent activity */}

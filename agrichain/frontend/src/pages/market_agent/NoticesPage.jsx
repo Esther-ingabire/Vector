@@ -30,17 +30,19 @@ export default function NoticesPage() {
   const [placing, setPlacing] = useState(false)
   const [sort, setSort] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
+  const [cropFilter, setCropFilter] = useState('')
+  const [distFilter, setDistFilter] = useState('')
 
   const loadNotices = useCallback(() => {
     setLoading(true)
     const params = {}
     if (sort) params.sort = sort
-    if (maxPrice) params.max_price = maxPrice
+    // maxPrice applied client-side below to avoid refetch on every keystroke
     marketAgentApi.getNotices(params)
       .then(res => setNotices(res.data?.results ?? res.data ?? []))
       .catch(() => toast.error('Could not load notices.'))
       .finally(() => setLoading(false))
-  }, [sort, maxPrice])
+  }, [sort])
 
   useEffect(() => { loadNotices() }, [loadNotices])
 
@@ -91,10 +93,20 @@ export default function NoticesPage() {
     </div>
   )
 
-  let ordered = notices
+  // Unique crops and distributors for filter dropdowns
+  const allCrops = [...new Set(notices.map(n => n.crop_name).filter(Boolean))].sort()
+  const allDists = [...new Set(notices.map(n => n.distributor_name).filter(Boolean))].sort()
+
+  // Apply all client-side filters — no refetch on keystroke
+  let filtered = notices
+  if (cropFilter) filtered = filtered.filter(n => n.crop_name === cropFilter)
+  if (distFilter) filtered = filtered.filter(n => n.distributor_name === distFilter)
+  if (maxPrice && !isNaN(Number(maxPrice))) filtered = filtered.filter(n => !n.price_per_kg || Number(n.price_per_kg) <= Number(maxPrice))
+
+  let ordered = filtered
   if (!sort) {
     const grouped = { HIGH: [], AMBER: [], LOW: [] }
-    notices.forEach(n => (grouped[n.risk_level] ??= []).push(n))
+    filtered.forEach(n => (grouped[n.risk_level] ??= []).push(n))
     ordered = [...(grouped.HIGH || []), ...(grouped.AMBER || []), ...(grouped.LOW || [])]
   }
 
@@ -103,9 +115,29 @@ export default function NoticesPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Available Stock</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Stock listings from your linked distributors. Place an order to reserve produce.</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Stock listings from your linked distributors. Place an order to reserve produce.
+            {(cropFilter || distFilter) && (
+              <span className="ml-2 font-medium text-primary-600">
+                {ordered.length} of {notices.length} shown
+              </span>
+            )}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Crop filter */}
+          <select className="input text-sm" value={cropFilter} onChange={e => setCropFilter(e.target.value)}>
+            <option value="">All crops</option>
+            {allCrops.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+
+          {/* Distributor filter */}
+          <select className="input text-sm" value={distFilter} onChange={e => setDistFilter(e.target.value)}>
+            <option value="">All distributors</option>
+            {allDists.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+
+          {/* Max price */}
           <input
             type="number"
             className="input w-32 text-sm"
@@ -113,18 +145,25 @@ export default function NoticesPage() {
             value={maxPrice}
             onChange={e => setMaxPrice(e.target.value)}
           />
+
+          {/* Sort */}
           <div className="relative">
             <ArrowUpDown className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <select
-              className="input pl-7 text-sm"
-              value={sort}
-              onChange={e => setSort(e.target.value)}
-            >
+            <select className="input pl-7 text-sm" value={sort} onChange={e => setSort(e.target.value)}>
               <option value="">Sort by risk</option>
-              <option value="price_asc">Price: Low to High</option>
-              <option value="price_desc">Price: High to Low</option>
+              <option value="price_asc">Price: Low → High</option>
+              <option value="price_desc">Price: High → Low</option>
             </select>
           </div>
+
+          {/* Clear filters */}
+          {(cropFilter || distFilter || maxPrice) && (
+            <button
+              onClick={() => { setCropFilter(''); setDistFilter(''); setMaxPrice('') }}
+              className="text-xs text-gray-500 hover:text-danger-600 underline whitespace-nowrap">
+              Clear filters
+            </button>
+          )}
         </div>
       </div>
 

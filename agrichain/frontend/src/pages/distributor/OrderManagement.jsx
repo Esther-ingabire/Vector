@@ -594,7 +594,7 @@ export default function OrderManagement() {
                         </div>
                         <div>
                           <p className="text-xs text-gray-400 mb-0.5">Qty Available</p>
-                          <p className="font-semibold text-gray-900">{Number(notice.quantity_available_kg).toLocaleString()} kg</p>
+                          <p className="font-semibold text-gray-900">{Number(notice.available_quantity_kg ?? notice.quantity_available_kg ?? 0).toLocaleString()} kg</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-400 mb-0.5">Price / kg</p>

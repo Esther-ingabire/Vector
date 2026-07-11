@@ -18,4 +18,5 @@ urlpatterns = [
     path('minagri/loss-trend/', views.MinagriLossTrendView.as_view(), name='minagri-loss-trend'),
     path('minagri/bottlenecks/', views.MinagriBottleneckView.as_view(), name='minagri-bottlenecks'),
     path('minagri/notifications/', views.MinagriNotificationsView.as_view(), name='minagri-notifications'),
+    path('minagri/chat/', views.MinagriChatView.as_view(), name='minagri-chat'),
 ]
