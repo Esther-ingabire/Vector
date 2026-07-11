@@ -26,6 +26,9 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (credential, password) => {
     const res = await authApi.login({ credential, password })
+    if (res.data.mfa_required) {
+      return { mfaRequired: true, credential: res.data.credential || credential }
+    }
     const { access, refresh, user: userData, must_change_password } = res.data
     localStorage.setItem('access_token', access)
     localStorage.setItem('refresh_token', refresh)

@@ -60,6 +60,28 @@ function mapApiNotification(n) {
   }
 }
 
+// MINAGRI's rule-based alerts (district loss threshold breaches, stale transport requests) are
+// computed live from real data on every request — they have no DB row/id, so they're display-only:
+// markRead just flips local state instead of calling the API (see isLocalOnly below).
+const MINAGRI_ALERT_ICON = { CRITICAL: AlertTriangle, WARNING: AlertTriangle, INFO: Info }
+const MINAGRI_ALERT_CLS  = {
+  CRITICAL: 'text-danger-600 bg-danger-50',
+  WARNING:  'text-warning-600 bg-warning-50',
+  INFO:     'text-primary-600 bg-primary-50',
+}
+function mapMinagriAlert(a, i) {
+  return {
+    id: `minagri-alert-${i}`,
+    Icon: MINAGRI_ALERT_ICON[a.type] || Info,
+    iconCls: MINAGRI_ALERT_CLS[a.type] || MINAGRI_ALERT_CLS.INFO,
+    title: a.title,
+    body: a.body,
+    ts: new Date(a.created_at),
+    read: !a.unread,
+    isLocalOnly: true,
+  }
+}
+
 // Where each role's batch-detail page lives — used to deep-link a "batch" notification
 // (e.g. a transporter's incident report) straight to that batch instead of just a toast.
 const ROLE_BATCH_DETAIL_PATH = {
@@ -89,14 +111,21 @@ export default function TopBar() {
   const seed = SEED_NOTIFICATIONS[user?.role] || []
   const unread = notifications.filter(n => !n.read).length
 
-  // ── Step 1: initial REST load ──────────────────────────────────────────────
+  // ── Step 1: initial REST load — generic account notifications, plus MINAGRI's
+  // live rule-based alerts merged in so the bell is the single place to see everything. ──
   useEffect(() => {
-    analyticsApi.getNotifications({ page_size: 20 })
-      .then(res => {
-        const results = res.data?.results || []
-        setNotifications(results.length > 0 ? results.map(mapApiNotification) : seed)
-      })
-      .catch(() => setNotifications(seed))
+    const isMinagri = user?.role === 'MINAGRI_OFFICER'
+    Promise.allSettled([
+      analyticsApi.getNotifications({ page_size: 20 }),
+      isMinagri ? analyticsApi.getMinagriAlerts() : Promise.resolve(null),
+    ]).then(([genRes, minagriRes]) => {
+      const generic = genRes.status === 'fulfilled' ? (genRes.value.data?.results || []).map(mapApiNotification) : []
+      const minagriAlerts = isMinagri && minagriRes.status === 'fulfilled'
+        ? (minagriRes.value.data?.alerts || []).map(mapMinagriAlert)
+        : []
+      const combined = [...minagriAlerts, ...generic].sort((a, b) => b.ts - a.ts)
+      setNotifications(combined.length > 0 ? combined : seed)
+    })
   }, [user?.role])
 
   // ── Step 2: SSE for real-time new notifications ────────────────────────────
@@ -216,7 +245,7 @@ export default function TopBar() {
                     : null
                   const handleClick = () => {
                     if (!n.read) {
-                      analyticsApi.markRead(n.id).catch(() => {})
+                      if (!n.isLocalOnly) analyticsApi.markRead(n.id).catch(() => {})
                       setNotifications(prev => prev.map(p => p.id === n.id ? { ...p, read: true } : p))
                     }
                     if (batchPath) {

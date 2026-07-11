@@ -16,6 +16,9 @@ export const authApi = {
     return apiClient.patch('/auth/me/avatar/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
   logout: () => { localStorage.clear() },
+  requestMfaOtp: () => apiClient.post('/auth/mfa/request-otp/'),
+  enableMfa: (data) => apiClient.post('/auth/mfa/enable/', data),
+  disableMfa: (data) => apiClient.post('/auth/mfa/disable/', data),
 
   // Admin only
   createUser: (data) => apiClient.post('/auth/users/create/', data),

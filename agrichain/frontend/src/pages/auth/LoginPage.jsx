@@ -34,7 +34,11 @@ export default function LoginPage() {
   const onSubmit = async (data) => {
     setLoading(true)
     try {
-      await login(data.credential, data.password)
+      const result = await login(data.credential, data.password)
+      if (result?.mfaRequired) {
+        navigate('/verify-otp', { state: { credential: result.credential, purpose: 'MFA_LOGIN' } })
+        toast('Enter the verification code sent to your email.', { icon: '🔐' })
+      }
     } catch (err) {
       const errData = err.response?.data
       const msg = errData?.error

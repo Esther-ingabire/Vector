@@ -35,6 +35,7 @@ export default function OTPPage() {
   const { updateUser } = useAuth()
   const purpose = location.state?.purpose || 'ACCOUNT_ACTIVATION'
   const isReset = purpose === 'PASSWORD_RESET'
+  const isMfa = purpose === 'MFA_LOGIN'
 
   useEffect(() => {
     const pre = location.state?.phone || location.state?.credential || ''
@@ -96,7 +97,7 @@ export default function OTPPage() {
       localStorage.setItem('access_token', access)
       localStorage.setItem('refresh_token', refresh)
       updateUser(user)
-      toast.success(isReset ? 'Code verified — set your new password.' : 'Account activated!')
+      toast.success(isMfa ? 'Signed in successfully!' : isReset ? 'Code verified — set your new password.' : 'Account activated!')
       if (must_change_password) {
         navigate('/set-password', { state: { user, isReset } })
       } else {
@@ -136,10 +137,12 @@ export default function OTPPage() {
           </button>
 
           <h2 className="text-xl font-semibold text-white mb-1">
-            {isReset ? 'Reset your password' : 'Activate your account'}
+            {isMfa ? 'Verify your identity' : isReset ? 'Reset your password' : 'Activate your account'}
           </h2>
           <p className="text-sm text-white/50 mb-6">
-            {isReset
+            {isMfa
+              ? 'Two-factor authentication is enabled on your account. Enter the 6-digit code sent to your email to finish signing in.'
+              : isReset
               ? 'Enter your phone or email and the 6-digit reset code we sent you.'
               : 'Check the email your administrator used for your account. Enter your phone or email and the 6-digit code below.'}
           </p>
@@ -157,7 +160,7 @@ export default function OTPPage() {
             </div>
 
             <div>
-              <label className={glassLabel}>6-digit activation code</label>
+              <label className={glassLabel}>{isMfa ? '6-digit verification code' : '6-digit activation code'}</label>
               <div className="flex gap-3 justify-center" onPaste={handlePaste}>
                 {otp.map((digit, i) => (
                   <input
@@ -181,7 +184,7 @@ export default function OTPPage() {
               className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-emerald-600/85 hover:bg-emerald-600 active:bg-emerald-700 border border-emerald-500/40 backdrop-blur-sm shadow-lg shadow-emerald-900/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {loading ? 'Verifying…' : isReset ? 'Verify & reset password' : 'Activate account'}
+              {loading ? 'Verifying…' : isMfa ? 'Verify & sign in' : isReset ? 'Verify & reset password' : 'Activate account'}
             </button>
           </form>
 

@@ -24,4 +24,7 @@ urlpatterns = [
     path("forgot-password/", views.forgot_password, name="forgot-password"),
     path("otp/resend/", views.resend_otp, name="resend-otp"),
     path("me/avatar/", views.upload_avatar, name="upload-avatar"),
+    path("mfa/request-otp/", views.mfa_request_enable_otp, name="mfa-request-otp"),
+    path("mfa/enable/", views.mfa_enable, name="mfa-enable"),
+    path("mfa/disable/", views.mfa_disable, name="mfa-disable"),
 ]

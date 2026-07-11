@@ -156,6 +156,7 @@ class OTPRecord(models.Model):
         ACCOUNT_ACTIVATION = 'ACCOUNT_ACTIVATION', 'Account Activation'
         PASSWORD_RESET     = 'PASSWORD_RESET',     'Password Reset'
         MFA_LOGIN          = 'MFA_LOGIN',           'MFA Login'
+        MFA_ENABLE         = 'MFA_ENABLE',           '2FA Setup Verification'
         CONTACT_CHANGE     = 'CONTACT_CHANGE',      'Contact Details Change'
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='otp_records')
@@ -195,6 +196,8 @@ class AuditLog(models.Model):
         PASSWORD_CHANGED   = 'PASSWORD_CHANGED',   'Password Changed'
         OTP_SENT           = 'OTP_SENT',           'OTP Sent'
         OTP_VERIFIED       = 'OTP_VERIFIED',       'OTP Verified'
+        MFA_ENABLED        = 'MFA_ENABLED',        'Two-Factor Authentication Enabled'
+        MFA_DISABLED       = 'MFA_DISABLED',       'Two-Factor Authentication Disabled'
         DATA_CREATED       = 'DATA_CREATED',       'Record Created'
         DATA_UPDATED       = 'DATA_UPDATED',       'Record Updated'
         DATA_DELETED       = 'DATA_DELETED',       'Record Deleted'

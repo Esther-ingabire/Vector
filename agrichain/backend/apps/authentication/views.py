@@ -148,6 +148,16 @@ def login_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     user = serializer.validated_data["user"]
+
+    if user.mfa_enabled:
+        otp_code, _ = create_otp_record(user, OTPRecord.Purpose.MFA_LOGIN)
+        send_otp_email(user, otp_code, OTPRecord.Purpose.MFA_LOGIN)
+        log_action(user, AuditLog.Action.OTP_SENT, "MFA login verification code sent", request)
+        return Response({
+            "mfa_required": True,
+            "credential": request.data.get("credential", "").strip(),
+        })
+
     refresh = RefreshToken.for_user(user)
     log_action(user, AuditLog.Action.LOGIN, f"User logged in from {get_client_ip(request)}", request)
 
@@ -181,6 +191,8 @@ def verify_otp(request):
         user.save(update_fields=["must_change_password"])
 
     log_action(user, AuditLog.Action.OTP_VERIFIED, f"OTP verified for purpose: {purpose}", request)
+    if purpose == OTPRecord.Purpose.MFA_LOGIN:
+        log_action(user, AuditLog.Action.LOGIN, f"User logged in (2FA) from {get_client_ip(request)}", request)
 
     refresh = RefreshToken.for_user(user)
     return Response({
@@ -190,6 +202,64 @@ def verify_otp(request):
         "must_change_password": user.must_change_password,
         "message": "OTP verified successfully.",
     })
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def mfa_request_enable_otp(request):
+    """Step 1 of enabling 2FA — proves the user still has access to their registered email."""
+    user = request.user
+    if user.mfa_enabled:
+        return Response({"detail": "Two-factor authentication is already enabled."}, status=status.HTTP_400_BAD_REQUEST)
+    otp_code, _ = create_otp_record(user, OTPRecord.Purpose.MFA_ENABLE)
+    send_otp_email(user, otp_code, OTPRecord.Purpose.MFA_ENABLE)
+    log_action(user, AuditLog.Action.OTP_SENT, "2FA setup verification code sent", request)
+    return Response({"detail": "A verification code has been sent to your email."})
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def mfa_enable(request):
+    """Step 2 of enabling 2FA — confirm the code from mfa_request_enable_otp."""
+    user = request.user
+    otp_code = (request.data.get("otp_code") or "").strip()
+    if len(otp_code) != 6:
+        return Response({"otp_code": "Enter the 6-digit code."}, status=status.HTTP_400_BAD_REQUEST)
+
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    try:
+        otp_record = OTPRecord.objects.filter(
+            user=user, purpose=OTPRecord.Purpose.MFA_ENABLE, is_used=False
+        ).latest("created_at")
+    except OTPRecord.DoesNotExist:
+        return Response({"otp_code": "No active code found. Request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+    if otp_record.otp_code != otp_hash:
+        return Response({"otp_code": "Incorrect code."}, status=status.HTTP_400_BAD_REQUEST)
+    if otp_record.is_expired():
+        return Response({"otp_code": "Code expired. Request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+
+    otp_record.is_used = True
+    otp_record.used_at = timezone.now()
+    otp_record.save()
+
+    user.mfa_enabled = True
+    user.save(update_fields=["mfa_enabled"])
+    log_action(user, AuditLog.Action.MFA_ENABLED, "Two-factor authentication enabled", request)
+    return Response(UserSerializer(user, context={"request": request}).data)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def mfa_disable(request):
+    """Disabling 2FA requires the current password — same bar as any other security downgrade."""
+    user = request.user
+    password = request.data.get("password") or ""
+    if not user.check_password(password):
+        return Response({"password": "Incorrect password."}, status=status.HTTP_400_BAD_REQUEST)
+    user.mfa_enabled = False
+    user.save(update_fields=["mfa_enabled"])
+    log_action(user, AuditLog.Action.MFA_DISABLED, "Two-factor authentication disabled", request)
+    return Response(UserSerializer(user, context={"request": request}).data)
 
 
 @api_view(["POST"])
@@ -415,6 +485,7 @@ def resend_otp(request):
     purpose_map = {
         "ACCOUNT_ACTIVATION": OTPRecord.Purpose.ACCOUNT_ACTIVATION,
         "PASSWORD_RESET":     OTPRecord.Purpose.PASSWORD_RESET,
+        "MFA_LOGIN":          OTPRecord.Purpose.MFA_LOGIN,
     }
     purpose = purpose_map.get(purpose_str, OTPRecord.Purpose.ACCOUNT_ACTIVATION)
 
