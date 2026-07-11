@@ -78,7 +78,7 @@ def generate_daily_insights():
             title="Loss Stage Breakdown",
             content=(
                 f"The highest loss stage yesterday was {top_stage} at {top_loss:.1f} tons. "
-                + " | ".join([f"{k}: {v:.1f}t" for k, v in stages.items()])
+                + " | ".join([f"{k}: {v:.1f}tons" for k, v in stages.items()])
             ),
             data_period_start=yesterday,
             data_period_end=yesterday,

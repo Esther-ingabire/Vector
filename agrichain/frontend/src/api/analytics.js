@@ -9,9 +9,10 @@ export const analyticsApi = {
   getMinagriExecutive:   ()       => apiClient.get('/analytics/minagri/executive/'),
   getMinagriDistricts:   ()       => apiClient.get('/analytics/minagri/districts/'),
   getMinagriRankings:    ()       => apiClient.get('/analytics/minagri/rankings/'),
-  getMinagriLossTrend:   ()       => apiClient.get('/analytics/minagri/loss-trend/'),
+  getMinagriLossTrend:   (params) => apiClient.get('/analytics/minagri/loss-trend/', { params }),
   getMinagriBottlenecks: ()       => apiClient.get('/analytics/minagri/bottlenecks/'),
   getMinagriAlerts:      ()       => apiClient.get('/analytics/minagri/notifications/'),
+  minagriChat:           (q)      => apiClient.post('/analytics/minagri/chat/', { question: q }),
 
   // Distribution analytics (live)
   getDistributionAnalytics: ()    => apiClient.get('/analytics/distribution/'),
