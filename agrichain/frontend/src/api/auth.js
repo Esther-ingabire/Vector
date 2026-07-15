@@ -28,4 +28,5 @@ export const authApi = {
   getUsers: (params) => apiClient.get('/auth/users/', { params }),
   updateUser: (id, data) => apiClient.patch(`/auth/users/${id}/`, data),
   getAuditLogs: (params) => apiClient.get('/auth/audit-logs/', { params }),
+  getDataIntegrationStatus: () => apiClient.get('/auth/data-integration-status/'),
 }

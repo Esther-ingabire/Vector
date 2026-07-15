@@ -1,17 +1,15 @@
 ﻿import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Clock, Truck, History, Box, FileDown, Users, Thermometer, Building2, User } from 'lucide-react'
+import { LayoutDashboard, Clock, Truck, Box, FileDown, Users, Thermometer, User } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import TransporterDashboard from './TransporterDashboard.jsx'
 import PendingRequests from './PendingRequests.jsx'
 import ActiveTrip from './ActiveTrip.jsx'
-import TripHistory from './TripHistory.jsx'
 import VehicleProfile from './VehicleProfile.jsx'
 import DriverProfilePage from './DriverProfilePage.jsx'
 import MyDrivers from './MyDrivers.jsx'
 import FleetMonitoring from './FleetMonitoring.jsx'
-import CompanyProfile from './CompanyProfile.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -42,19 +40,17 @@ export default function TransporterLayout() {
     ...(!isCompany ? [{ to: '/transporter/active', label: 'Active Trip', icon: Truck }] : []),
     ...(isCompany  ? [{ to: '/transporter/drivers',  label: 'My Drivers',      icon: Users     }] : []),
     ...(isCompany  ? [{ to: '/transporter/vehicle',  label: 'Vehicle Fleet',   icon: Box       }] : []),
-    ...(isCompany  ? [{ to: '/transporter/company',  label: 'Company Profile', icon: Building2 }] : []),
     // Vehicle Profile only for drivers who own their own truck (coop/distributor-registered or independent)
     ...(driverOwnsVehicle ? [{ to: '/transporter/vehicle',  label: 'My Vehicle', icon: Box  }] : []),
     // Driver Profile for everyone who is an individual driver
     ...(!isCompany ? [{ to: '/transporter/profile',  label: 'My Profile',  icon: User  }] : []),
-    { to: '/transporter/history',    label: 'Trip History',     icon: History },
     { to: '/transporter/monitoring', label: 'Fleet Monitoring', icon: Thermometer },
     { to: '/transporter/reports',    label: 'Reports',          icon: FileDown },
   ]
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      <Sidebar navItems={navItems} title="Transporter" />
+      <Sidebar navItems={navItems} title={isCompany ? 'Transport Company' : 'Transporter'} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
         <main className="flex-1 overflow-y-auto p-6">
@@ -62,11 +58,10 @@ export default function TransporterLayout() {
             <Route index element={<TransporterDashboard />} />
             <Route path="pending" element={<PendingRequests />} />
             <Route path="active"   element={<ActiveTrip />} />
-            <Route path="history"  element={<TripHistory />} />
+            <Route path="history"  element={<Navigate to="/transporter/reports" replace />} />
             <Route path="vehicle"  element={<VehicleProfile />} />
             <Route path="profile"  element={<DriverProfilePage />} />
             <Route path="drivers" element={<MyDrivers />} />
-            <Route path="company" element={<CompanyProfile />} />
             <Route path="monitoring" element={<FleetMonitoring />} />
             <Route path="reports" element={<RoleReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />

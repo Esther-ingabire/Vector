@@ -32,6 +32,7 @@ class Notification(models.Model):
         BATCH_IN_TRANSIT            = 'BATCH_IN_TRANSIT',           'Batch Is Now In Transit'
         BATCH_DELIVERED             = 'BATCH_DELIVERED',            'Batch Arrived — Confirm Receipt'
         AGENT_COLLECTION_CONFIRMED  = 'AGENT_COLLECTION_CONFIRMED', 'Market Agent Collected Produce'
+        BATCH_MISMATCH_REPORTED     = 'BATCH_MISMATCH_REPORTED',   'Batch Mismatch Reported by Distributor'
         # Market Agent
         COLLECTION_NOTICE_AVAILABLE = 'COLLECTION_NOTICE_AVAILABLE', 'New Collection Notice Available'
         ORDER_CONFIRMED             = 'ORDER_CONFIRMED',              'Order Confirmed by Distributor'
@@ -41,6 +42,7 @@ class Notification(models.Model):
         DISTRICT_THRESHOLD_BREACH   = 'DISTRICT_THRESHOLD_BREACH',   'District Loss Threshold Exceeded'
         SEASONAL_LOSS_PREDICTION    = 'SEASONAL_LOSS_PREDICTION',    'Seasonal High-Loss Prediction'
         NEW_REPORT_AVAILABLE        = 'NEW_REPORT_AVAILABLE',        'New Report Available for Download'
+        HIGH_SPOILAGE_ALERT         = 'HIGH_SPOILAGE_ALERT',         'High Spoilage Rate Reported'
         # System-wide
         SYSTEM_ANNOUNCEMENT         = 'SYSTEM_ANNOUNCEMENT',        'System Announcement'
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, Package, AlertTriangle, CheckCircle, Pencil } from 'lucide-react'
+import { Plus, Search, Package, AlertTriangle, CheckCircle, Pencil, Trash2 } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable.jsx'
 import Modal from '../../components/ui/Modal.jsx'
 import { cooperativesApi } from '../../api/cooperatives.js'
@@ -13,7 +13,15 @@ const MOCK_STOCK = [
   { id: 5, crop_name: 'Potatoes', crop: 5, notes: 'Irish potatoes',  quantity_kg: 2100, quality_grade: 'B', harvest_date: '2026-06-01', available_from: '2026-06-05', is_available: true, low_stock: true },
 ]
 
-const BLANK_FORM = { crop: '', quantity_kg: '', quality_grade: 'A', harvest_date: '', available_from: '', notes: '' }
+const BLANK_FORM = { crop: '', customCropName: '', quantity_kg: '', quality_grade: 'A', harvest_date: '', available_from: '', notes: '' }
+
+const OTHER_CROP = '__other__'
+
+const GRADE_HELP = {
+  A: 'No visible defects or damage, uniform size and colour, ideal ripeness — sells at top price.',
+  B: 'Minor blemishes or size variation, still fully usable — sells at standard price.',
+  C: 'Visible damage, bruising, or over-ripeness — best moved quickly or sold at a discount.',
+}
 
 // Defined outside StockManagement so its identity stays stable across re-renders — defining
 // this inline inside the component body would create a brand new function on every keystroke
@@ -25,10 +33,18 @@ const StockForm = ({ values, onChange, crops, isEdit = false }) => (
       <div>
         <label className="label">Crop *</label>
         {crops.length > 0 ? (
-          <select className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required>
-            <option value="">Select crop…</option>
-            {crops.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <>
+            <select className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required>
+              <option value="">Select crop…</option>
+              {crops.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value={OTHER_CROP}>Other…</option>
+            </select>
+            {values.crop === OTHER_CROP && (
+              <input className="input mt-2" value={values.customCropName}
+                onChange={e => onChange('customCropName', e.target.value)}
+                required placeholder="Type the crop name" autoFocus />
+            )}
+          </>
         ) : (
           <input className="input" value={values.crop} onChange={e => onChange('crop', e.target.value)} required placeholder="Enter crop name" />
         )}
@@ -37,7 +53,7 @@ const StockForm = ({ values, onChange, crops, isEdit = false }) => (
     <div className="grid grid-cols-2 gap-4">
       <div>
         <label className="label">Quantity (kg) *</label>
-        <input type="number" className="input" value={values.quantity_kg} onChange={e => onChange('quantity_kg', e.target.value)} required min="1" />
+        <input type="number" className="input" value={values.quantity_kg} onChange={e => onChange('quantity_kg', e.target.value)} required min="0.01" step="0.01" />
       </div>
       <div>
         <label className="label">Quality grade *</label>
@@ -46,6 +62,7 @@ const StockForm = ({ values, onChange, crops, isEdit = false }) => (
           <option value="B">Grade B — Standard</option>
           <option value="C">Grade C — Below standard</option>
         </select>
+        <p className="text-xs text-gray-400 mt-1">{GRADE_HELP[values.quality_grade]}</p>
       </div>
     </div>
     <div className="grid grid-cols-2 gap-4">
@@ -85,6 +102,8 @@ export default function StockManagement() {
   const [editForm, setEditForm] = useState({ ...BLANK_FORM, is_available: true })
 
   const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   useEffect(() => {
     Promise.all([
@@ -107,12 +126,14 @@ export default function StockManagement() {
 
   const handleAdd = async (e) => {
     e.preventDefault()
+    const isOther = form.crop === OTHER_CROP
     setSaving(true)
     try {
+      const { customCropName, crop, ...rest } = form
       const res = await cooperativesApi.addStock({
-        ...form,
+        ...rest,
         quantity_kg: Number(form.quantity_kg),
-        crop: Number(form.crop),
+        ...(isOther ? { crop_name: customCropName.trim() } : { crop: Number(crop) }),
       })
       setStock(prev => [res.data, ...prev])
       toast.success('Stock record added')
@@ -123,7 +144,7 @@ export default function StockManagement() {
       const cropObj = crops.find(c => String(c.id) === String(form.crop))
       const newItem = {
         id: Date.now(),
-        crop_name: cropObj?.name || 'New Crop',
+        crop_name: isOther ? form.customCropName.trim() : (cropObj?.name || 'New Crop'),
         crop: form.crop,
         notes: form.notes,
         quantity_kg: Number(form.quantity_kg),
@@ -190,6 +211,21 @@ export default function StockManagement() {
     }
   }
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeletingId(deleteTarget.id)
+    try {
+      await cooperativesApi.deleteStock(deleteTarget.id)
+      setStock(prev => prev.filter(s => s.id !== deleteTarget.id))
+      toast.success('Stock record deleted')
+    } catch {
+      toast.error('Could not delete stock record')
+    } finally {
+      setDeletingId(null)
+      setDeleteTarget(null)
+    }
+  }
+
   const columns = [
     { key: 'crop_name', label: 'Crop', render: (v, row) => (
       <div>
@@ -211,12 +247,21 @@ export default function StockManagement() {
       return <span className="text-xs font-medium text-success-600">available</span>
     }},
     { key: '_actions', label: '', render: (_, row) => (
-      <button
-        onClick={e => { e.stopPropagation(); startEdit(row) }}
-        className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium"
-      >
-        <Pencil className="w-3 h-3" /> Edit
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={e => { e.stopPropagation(); startEdit(row) }}
+          className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium"
+        >
+          <Pencil className="w-3 h-3" /> Edit
+        </button>
+        <button
+          onClick={e => { e.stopPropagation(); setDeleteTarget(row) }}
+          disabled={deletingId === row.id}
+          className="flex items-center gap-1 text-xs text-danger-500 hover:text-danger-700 font-medium disabled:opacity-50"
+        >
+          <Trash2 className="w-3 h-3" /> {deletingId === row.id ? 'Deleting…' : 'Delete'}
+        </button>
+      </div>
     )},
   ]
 
@@ -284,6 +329,27 @@ export default function StockManagement() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Stock Record">
+        {deleteTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Delete this <strong>{deleteTarget.crop_name}</strong> record
+              ({Number(deleteTarget.quantity_kg).toLocaleString()} kg, Grade {deleteTarget.quality_grade})?
+              This can't be undone.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={confirmDelete} disabled={deletingId === deleteTarget.id}
+                className="btn-danger flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {deletingId === deleteTarget.id && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {deletingId === deleteTarget.id ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

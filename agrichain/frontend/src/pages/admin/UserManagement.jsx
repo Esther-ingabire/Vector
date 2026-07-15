@@ -8,7 +8,11 @@ import { authApi } from '../../api/auth.js'
 import toast from 'react-hot-toast'
 
 const ROLES = ['ALL', 'COOPERATIVE_MANAGER', 'TRANSPORT_COMPANY', 'TRANSPORTER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER', 'WAREHOUSE_MANAGER']
-const CREATABLE_ROLES = ['COOPERATIVE_MANAGER', 'TRANSPORT_COMPANY', 'TRANSPORTER', 'DISTRIBUTOR', 'MARKET_AGENT', 'MINAGRI_OFFICER', 'WAREHOUSE_MANAGER']
+// Every other role already has a self-service Request Access flow reviewed via the
+// Registration Queue — creating them here too would be a second, unreviewed path to the
+// same accounts. MINAGRI Officer has no public request form at all, so it's the one role
+// that genuinely needs a direct-create path.
+const CREATABLE_ROLES = ['MINAGRI_OFFICER']
 const ROLE_LABELS = { ADMIN: 'Admin', COOPERATIVE_MANAGER: 'Coop Manager', TRANSPORT_COMPANY: 'Transport Company', TRANSPORTER: 'Transporter (Driver)', DISTRIBUTOR: 'Distributor', MARKET_AGENT: 'Market Agent', MINAGRI_OFFICER: 'MINAGRI Officer', WAREHOUSE_MANAGER: 'Warehouse Manager' }
 const ROLE_BADGE = { ADMIN: 'badge-red', COOPERATIVE_MANAGER: 'badge-green', TRANSPORT_COMPANY: 'badge-amber', TRANSPORTER: 'badge-gray', DISTRIBUTOR: 'badge-primary', MARKET_AGENT: 'badge-blue', MINAGRI_OFFICER: 'badge-gray', WAREHOUSE_MANAGER: 'badge-blue' }
 
@@ -118,7 +122,7 @@ function AddUserModal({ onClose, onCreated }) {
   const [saving, setSaving] = useState(false)
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: zodResolver(createSchema),
-    defaultValues: { email: '', organization_name: '', district: '' },
+    defaultValues: { email: '', organization_name: '', district: '', role: CREATABLE_ROLES[0] },
   })
 
   const onSubmit = async (data) => {
@@ -143,7 +147,7 @@ function AddUserModal({ onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900">Add User</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Add MINAGRI Officer</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
@@ -170,12 +174,12 @@ function AddUserModal({ onClose, onCreated }) {
             {errors.email && <p className="text-danger-500 text-xs mt-1">{errors.email.message}</p>}
           </div>
           <div>
-            <label className="label">Role *</label>
-            <select {...register('role')} className="input">
-              <option value="">Select role…</option>
-              {CREATABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-            </select>
-            {errors.role && <p className="text-danger-500 text-xs mt-1">{errors.role.message}</p>}
+            <label className="label">Role</label>
+            <input type="hidden" {...register('role')} />
+            <p className="input bg-gray-50 text-gray-500">{ROLE_LABELS[CREATABLE_ROLES[0]]}</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Every other role signs up through Request Access and is reviewed in the Registration Queue.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -269,7 +273,7 @@ export default function UserManagement() {
           <p className="text-sm text-gray-500 mt-0.5">{total} registered users</p>
         </div>
         <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-2">
-          <UserPlus className="w-4 h-4" /> Add User
+          <UserPlus className="w-4 h-4" /> Add MINAGRI Officer
         </button>
       </div>
 

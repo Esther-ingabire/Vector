@@ -119,6 +119,52 @@ class CooperativeStock(models.Model):
         return f"{self.cooperative.name} — {self.crop.name} {self.quantity_kg}kg ({self.quality_grade})"
 
 
+class CooperativeWasteReport(models.Model):
+    """
+    End-of-period loss report submitted by a cooperative for produce that spoiled or was
+    discarded before it was ever dispatched — the very first stage of the chain, one step
+    earlier than DistributorWasteReport (cooperative → distributor → market). Without this,
+    the system tracked loss at every stage AFTER dispatch but had a blind spot for produce
+    that never left the cooperative at all.
+    """
+
+    class DiscardReason(models.TextChoices):
+        SPOILAGE  = 'SPOILAGE',  'Spoilage — natural deterioration'
+        NO_DEMAND = 'NO_DEMAND', 'No demand — not requested by distributors before spoilage'
+        DAMAGE    = 'DAMAGE',    'Physical/handling damage in storage'
+        OTHER     = 'OTHER',     'Other — see notes'
+
+    cooperative             = models.ForeignKey(Cooperative, on_delete=models.PROTECT, related_name='waste_reports')
+    # Nullable so a report can, in principle, still be filed without pinning to one crop —
+    # but the multi-crop-row submission form always sets it for every row it creates.
+    crop                    = models.ForeignKey(Crop, on_delete=models.PROTECT, null=True, blank=True,
+                                                 related_name='cooperative_waste_reports')
+    reporting_period_start  = models.DateField()
+    reporting_period_end    = models.DateField()
+
+    quantity_dispatched_kg  = models.DecimalField(max_digits=10, decimal_places=2,
+                                                   help_text="Quantity dispatched to distributors during this period")
+    quantity_discarded_kg   = models.DecimalField(max_digits=10, decimal_places=2)
+    discard_reason          = models.CharField(max_length=20, choices=DiscardReason.choices)
+    discard_notes           = models.TextField(blank=True)
+
+    # Pre-dispatch loss — calculated by the system: discarded / (dispatched + discarded)
+    storage_spoilage_loss_pct = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-submitted_at']
+
+    def save(self, *args, **kwargs):
+        total = float(self.quantity_dispatched_kg) + float(self.quantity_discarded_kg)
+        self.storage_spoilage_loss_pct = round(float(self.quantity_discarded_kg) / total * 100, 2) if total > 0 else 0
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Waste report: {self.cooperative} ({self.reporting_period_start} to {self.reporting_period_end})"
+
+
 class WarehouseManager(models.Model):
     """
     Independent operator of cold storage facilities that cooperatives without their own
@@ -202,6 +248,10 @@ class WarehouseRentalRequest(models.Model):
     cooperative           = models.ForeignKey(Cooperative, on_delete=models.CASCADE, related_name='warehouse_rental_requests')
     facility              = models.ForeignKey(ColdStorageFacility, on_delete=models.CASCADE, related_name='rental_requests')
     requested_capacity_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    requires_iot_monitoring = models.BooleanField(
+        default=False,
+        help_text="Cooperative needs the rented space to have IoT temperature/humidity monitoring.",
+    )
     notes                 = models.TextField(blank=True)
 
     status       = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -214,3 +264,25 @@ class WarehouseRentalRequest(models.Model):
 
     def __str__(self):
         return f"Rental request: {self.cooperative} → {self.facility} ({self.status})"
+
+
+class WarehouseManagerRating(models.Model):
+    """
+    A cooperative's 1-5 star rating + comment for a Warehouse Manager, left once a rental
+    ends. Mirrors transport.TransporterRating — one rating per WarehouseRentalRequest via the
+    OneToOneField below, not a Meta uniqueness constraint. Feeds the "suggested" ranking on
+    the Rent Warehouse browse page.
+    """
+
+    rental_request        = models.OneToOneField(WarehouseRentalRequest, on_delete=models.CASCADE, related_name='rating')
+    warehouse_manager     = models.ForeignKey(WarehouseManager, on_delete=models.CASCADE, related_name='ratings')
+    rated_by_cooperative   = models.ForeignKey(Cooperative, null=True, blank=True, on_delete=models.SET_NULL)
+    rating     = models.PositiveSmallIntegerField(help_text="1-5 stars")
+    comment    = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.rating}★ for {self.warehouse_manager} (Rental #{self.rental_request_id})"

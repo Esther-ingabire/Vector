@@ -27,6 +27,49 @@ def _get_or_create_distributor(user):
         )
 
 
+def _allocate_batches_fifo(order, qty_needed):
+    """
+    Link this order to the specific cooperative batch(es) it was actually filled from,
+    oldest-received stock first (FIFO) — the same principle a real warehouse uses to
+    decide which pallet to pull from. Without this, an order has no way to trace back to
+    the batch(es) that supplied it once stock has pooled at the distributor.
+
+    Only batches of the same crop, received by this distributor, are candidates. A
+    batch's "available" quantity is what it arrived with minus whatever has already been
+    allocated to other orders — so the same 90,000kg batch can be legitimately split
+    across many small orders over time, each recorded separately.
+
+    If confirmed_quantity_kg exceeds what's traceable to a logged batch (e.g. produce the
+    distributor sourced outside the platform), the remainder is simply left unallocated —
+    honest about the limits of what can be traced, not padded with a fake batch link.
+    """
+    from decimal import Decimal
+    from django.db.models import Sum
+    from apps.traceability.models import Batch, BatchAllocation
+
+    if not order.collection_notice_id or not order.collection_notice.crop_id:
+        return
+    crop = order.collection_notice.crop
+
+    candidate_batches = Batch.objects.filter(
+        received_by_distributor=order.distributor,
+        crop=crop,
+        weight_at_distributor_kg__isnull=False,
+    ).order_by('distributor_receipt_timestamp')
+
+    remaining = Decimal(str(qty_needed))
+    for batch in candidate_batches:
+        if remaining <= 0:
+            break
+        already_allocated = batch.allocations.aggregate(s=Sum('quantity_kg'))['s'] or Decimal('0')
+        available = Decimal(str(batch.weight_at_distributor_kg)) - already_allocated
+        if available <= 0:
+            continue
+        take = min(available, remaining)
+        BatchAllocation.objects.create(batch=batch, order=order, quantity_kg=take)
+        remaining -= take
+
+
 class DistributorViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DistributorSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -37,12 +80,18 @@ class DistributorViewSet(viewsets.ReadOnlyModelViewSet):
             return Distributor.objects.filter(user=user)
         return Distributor.objects.filter(is_active=True)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsDistributor])
+    @action(detail=False, methods=['get', 'patch'], permission_classes=[IsDistributor])
     def my(self, request):
         try:
-            return Response(DistributorSerializer(request.user.distributor_profile).data)
+            distributor = request.user.distributor_profile
         except Distributor.DoesNotExist:
             return Response({'detail': 'No distributor profile found.'}, status=status.HTTP_404_NOT_FOUND)
+        if request.method == 'PATCH':
+            serializer = DistributorSerializer(distributor, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
+        return Response(DistributorSerializer(distributor).data)
 
     @action(detail=False, methods=['get'], permission_classes=[IsMarketAgent])
     def nearby(self, request):
@@ -255,6 +304,10 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.status = Order.Status.CONFIRMED
         order.confirmed_at = timezone.now()
         order.save()
+        # Only allocate once — a re-confirmation (e.g. quantity correction) shouldn't
+        # double-link batches on top of an allocation that's already there.
+        if not order.batch_allocations.exists():
+            _allocate_batches_fifo(order, qty)
         notify(
             order.market_agent.user,
             Notification.NotificationType.ORDER_CONFIRMED,
@@ -469,7 +522,103 @@ class DistributorWasteReportViewSet(viewsets.ModelViewSet):
         return DistributorWasteReport.objects.none()
 
     def perform_create(self, serializer):
-        serializer.save(distributor=self.request.user.distributor_profile)
+        from apps.notifications.services import notify_high_spoilage
+        report = serializer.save(distributor=self.request.user.distributor_profile)
+        notify_high_spoilage(
+            'Distributor', str(report.distributor), report.warehouse_spoilage_loss_pct,
+            related_object_type='distributor_waste_report', related_object_id=report.id,
+        )
+
+    @action(detail=False, methods=['get'], url_path='sold-summary')
+    def sold_summary(self, request):
+        """
+        Per-crop totals of what was actually collected by market agents in a date range —
+        real figures from CollectionConfirmation, not a guess. Powers the "quantity moved
+        on" suggestion in the waste report form, so a distributor reports against what the
+        system already knows was sold instead of estimating from memory.
+        Query params: period_start, period_end (YYYY-MM-DD, both required).
+        """
+        from datetime import datetime, time
+        import pytz
+        from django.db.models import Sum
+        from apps.market_agents.models import CollectionConfirmation
+
+        try:
+            distributor = request.user.distributor_profile
+        except Distributor.DoesNotExist:
+            return Response({'detail': 'No distributor profile found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        start_str = request.query_params.get('period_start')
+        end_str = request.query_params.get('period_end')
+        if not start_str or not end_str:
+            return Response({'detail': 'period_start and period_end are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        tz = pytz.timezone('Africa/Kigali')
+        try:
+            period_start = tz.localize(datetime.combine(datetime.strptime(start_str, '%Y-%m-%d').date(), time.min))
+            period_end = tz.localize(datetime.combine(datetime.strptime(end_str, '%Y-%m-%d').date(), time.max))
+        except ValueError:
+            return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = (
+            CollectionConfirmation.objects
+            .filter(
+                order__distributor=distributor,
+                collected_at__gte=period_start, collected_at__lte=period_end,
+            )
+            .values('order__collection_notice__crop_id', 'order__collection_notice__crop__name')
+            .annotate(moved_kg=Sum('quantity_collected_kg'))
+        )
+        return Response([
+            {
+                'crop_id': r['order__collection_notice__crop_id'],
+                'crop_name': r['order__collection_notice__crop__name'],
+                'moved_kg': r['moved_kg'],
+            }
+            for r in rows if r['order__collection_notice__crop_id']
+        ])
+
+    @action(detail=False, methods=['post'], url_path='create-batch')
+    def create_batch(self, request):
+        """
+        One reporting period, several crop rows submitted together — same pattern as
+        CooperativeWasteReportViewSet.create_batch / TransportRequestViewSet.create_multi_stop.
+        Body: { reporting_period_start, reporting_period_end,
+                rows: [{ crop | crop_name, quantity_moved_kg, quantity_discarded_kg,
+                         discard_reason, discard_notes }, ...] }
+        """
+        from django.db import transaction
+
+        rows = request.data.get('rows') or []
+        if len(rows) < 1:
+            return Response({'detail': 'Add at least one crop row.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            distributor = request.user.distributor_profile
+        except Distributor.DoesNotExist:
+            return Response({'detail': 'No distributor profile found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        shared = {k: v for k, v in request.data.items() if k != 'rows'}
+
+        # Validate every row before saving any (see CooperativeWasteReportViewSet.create_batch
+        # for why this must happen before entering the atomic block, not inside it).
+        row_serializers = []
+        for i, row in enumerate(rows, start=1):
+            serializer = DistributorWasteReportSerializer(data={**shared, **row})
+            if not serializer.is_valid():
+                return Response({'row': i, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            row_serializers.append(serializer)
+
+        with transaction.atomic():
+            created = [s.save(distributor=distributor) for s in row_serializers]
+
+        from apps.notifications.services import notify_high_spoilage
+        for report in created:
+            notify_high_spoilage(
+                'Distributor', str(distributor), report.warehouse_spoilage_loss_pct,
+                related_object_type='distributor_waste_report', related_object_id=report.id,
+            )
+
+        return Response(DistributorWasteReportSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -547,3 +696,51 @@ def register_own_driver(request):
         'user_id': user.id,
         'otp_code': otp_code,  # shown in dev so the distributor can manually share it
     }, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsDistributor])
+def manage_transporter(request, pk):
+    """Update contact/location details, or suspend/reactivate, a driver registered by this
+    distributor. Mirrors the cooperative's manage_transporter (apps/cooperatives/views.py)."""
+    dist = _get_or_create_distributor(request.user)
+
+    from django.db import IntegrityError
+    from apps.transport.models import Transporter
+    from apps.transport.serializers import TransporterSerializer
+
+    try:
+        transporter = Transporter.objects.get(pk=pk, registered_by_distributor=dist)
+    except Transporter.DoesNotExist:
+        return Response({'detail': 'Transporter not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'DELETE':
+        transporter.is_active = False
+        transporter.save(update_fields=['is_active'])
+        return Response({'detail': 'Driver suspended.'})
+
+    user_fields = {f: request.data[f] for f in ('first_name', 'last_name', 'phone_number', 'email') if f in request.data}
+    if user_fields:
+        for k, v in user_fields.items():
+            setattr(transporter.user, k, v)
+        try:
+            transporter.user.save(update_fields=list(user_fields.keys()))
+        except IntegrityError as e:
+            err = str(e)
+            if 'phone_number' in err:
+                return Response({'phone_number': ['A user with this phone number already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+            if 'email' in err:
+                return Response({'email': ['A user with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Could not update — a duplicate entry exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if 'base_location' in request.data:
+        transporter.base_location = request.data['base_location']
+    if 'operating_districts' in request.data:
+        districts = request.data['operating_districts']
+        if isinstance(districts, str):
+            districts = [d.strip() for d in districts.split(',') if d.strip()]
+        transporter.operating_districts = districts
+    if 'is_active' in request.data:
+        transporter.is_active = bool(request.data['is_active'])
+    transporter.save()
+    return Response(TransporterSerializer(transporter).data)

@@ -1,5 +1,5 @@
 ﻿import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle, FileDown, Warehouse, Building2 } from 'lucide-react'
+import { LayoutDashboard, Package, Inbox, Truck, Thermometer, QrCode, Settings, CheckCircle, FileDown, Warehouse, Trash2 } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import CooperativeDashboard from './CooperativeDashboard.jsx'
@@ -11,7 +11,7 @@ import StorageAnalytics from './StorageAnalytics.jsx'
 import RentWarehouse from './RentWarehouse.jsx'
 import TraceabilityView from './TraceabilityView.jsx'
 import DeliveryConfirmations from './DeliveryConfirmations.jsx'
-import CooperativeProfilePage from './CooperativeProfilePage.jsx'
+import WasteReportPage from './WasteReportPage.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 
@@ -21,11 +21,11 @@ const navItems = [
   { to: '/cooperative/produce-requests',   label: 'Produce Requests',      icon: Inbox },
   { to: '/cooperative/transport-requests', label: 'Transport Requests',    icon: Truck },
   { to: '/cooperative/deliveries',         label: 'Delivery Confirmations',icon: CheckCircle },
+  { to: '/cooperative/waste-report',       label: 'Waste Report',          icon: Trash2 },
   { to: '/cooperative/storage',            label: 'Storage Analytics',     icon: Thermometer },
   { to: '/cooperative/rent-warehouse',     label: 'Rent Warehouse',        icon: Warehouse },
   { to: '/cooperative/traceability',       label: 'Traceability',          icon: QrCode },
   { to: '/cooperative/reports',            label: 'Reports',               icon: FileDown },
-  { to: '/cooperative/profile',            label: 'Organisation Profile',  icon: Building2 },
   { to: '/cooperative/settings',           label: 'Settings',              icon: Settings },
 ]
 
@@ -43,11 +43,11 @@ export default function CooperativeLayout() {
             <Route path="transport-requests" element={<TransportRequests />} />
             <Route path="batches" element={<ActiveBatches />} />
             <Route path="deliveries" element={<DeliveryConfirmations />} />
+            <Route path="waste-report" element={<WasteReportPage />} />
             <Route path="storage" element={<StorageAnalytics />} />
             <Route path="rent-warehouse" element={<RentWarehouse />} />
             <Route path="traceability" element={<TraceabilityView />} />
             <Route path="reports"  element={<RoleReportsPage />} />
-            <Route path="profile"  element={<CooperativeProfilePage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/cooperative" replace />} />
           </Routes>

@@ -120,6 +120,7 @@ export default function BottleneckDetectionPage() {
 
   const hotspots          = data?.hotspots            || []
   const rootCauses        = data?.root_causes         || []
+  const dispatchCauses    = data?.dispatch_root_causes || []
   const marketCauses      = data?.market_root_causes  || []
   const coldChainCauses   = data?.coldchain_root_causes || []
   const monthLabels       = data?.monthly_delays?.months || []
@@ -309,11 +310,11 @@ export default function BottleneckDetectionPage() {
       </div>
 
       {/* Root Causes by Stage — one card per stage that has real causal signal behind the metric.
-          Storage/Dispatch are intentionally excluded: their bottleneck IS the metric (utilization %,
-          backlog age) with no deeper cause data to break down without fabricating it. */}
+          Storage is intentionally excluded: its bottleneck IS the metric (utilization %) with no
+          deeper cause data to break down without fabricating it. */}
       <div>
         <h2 className="font-semibold text-gray-900 mb-3">Root Causes by Stage</h2>
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="card">
             <div className="flex items-center gap-2 mb-1">
               <Route className="w-4 h-4 text-danger-600" />
@@ -351,15 +352,29 @@ export default function BottleneckDetectionPage() {
 
           <div className="card">
             <div className="flex items-center gap-2 mb-1">
+              <PackageX className="w-4 h-4 text-orange-600" />
+              <h3 className="font-semibold text-gray-900 text-sm">Dispatch Losses</h3>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Why produce spoils before ever leaving the cooperative</p>
+            <CauseBreakdown
+              causes={dispatchCauses}
+              barClass="bg-orange-600"
+              textClass="text-orange-700"
+              emptyText="No cooperative waste reports to analyse yet."
+            />
+          </div>
+
+          <div className="card">
+            <div className="flex items-center gap-2 mb-1">
               <Store className="w-4 h-4 text-purple-600" />
               <h3 className="font-semibold text-gray-900 text-sm">Market Losses</h3>
             </div>
-            <p className="text-xs text-gray-400 mb-4">Why distributor-stage produce gets discarded</p>
+            <p className="text-xs text-gray-400 mb-4">Distributor warehouse + market stall combined</p>
             <CauseBreakdown
               causes={marketCauses}
               barClass="bg-purple-600"
               textClass="text-purple-700"
-              emptyText="No distributor waste reports to analyse yet."
+              emptyText="No distributor/market agent waste reports to analyse yet."
             />
           </div>
 

@@ -155,9 +155,15 @@ export default function FleetMonitoring() {
         </div>
       )}
 
-      {isCompany && incidents.length > 0 && (
+      {isCompany && (
         <div>
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Incidents Reported by Drivers</p>
+          {incidents.length === 0 ? (
+            <div className="card py-8 text-center text-gray-400">
+              <CheckCircle className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No open incidents — your fleet is running clean.</p>
+            </div>
+          ) : (
           <div className="space-y-2">
             {incidents.map(inc => {
               const trip = trips.find(t => t.trip_id === inc.trip)
@@ -179,6 +185,7 @@ export default function FleetMonitoring() {
               )
             })}
           </div>
+          )}
         </div>
       )}
 

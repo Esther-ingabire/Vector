@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect, useCallback, useMemo } from 'react'
-import { RefreshCw, AlertTriangle, CheckCircle, Thermometer, MapPin, Truck, Package } from 'lucide-react'
+import { RefreshCw, AlertTriangle, CheckCircle, Thermometer, MapPin, Truck, Package, FlagTriangleRight } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
+import ConfirmReceiptModal from '../../components/traceability/ConfirmReceiptModal.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import { traceabilityApi } from '../../api/traceability.js'
 import toast from 'react-hot-toast'
@@ -14,14 +15,6 @@ const MOCK_DELIVERIES = [
   { id: 'BCH-2026-004', batch_id: 'BCH-2026-004', cooperative_name: 'Musanze Coffee Coop', crop_name: 'Maize', shipped_qty_kg: 3200, eta: '2026-05-28', status: 'CONFIRMED' },
 ]
 
-const CONFIRM_BLANK = {
-  received_qty_kg: '', quality_grade_received: 'A',
-  shortfall_type: '',           // 'TRANSIT_LOSS' | 'NOT_DISPATCHED'
-  transit_loss_reason: '',      // reason when produce left coop but was lost en route
-  not_dispatched_reason: '',    // reason when coop never loaded the missing quantity
-  not_dispatched_kg: '',        // how many kg the coop didn't send
-  notes: '',
-}
 const GRADE_OPTIONS = ['A', 'B', 'C']
 const FILTER_OPTIONS = ['ALL', 'IN_TRANSIT', 'CONFIRMED']
 const FILTER_LABEL = { ALL: 'All', IN_TRANSIT: 'In Transit', CONFIRMED: 'Confirmed' }
@@ -33,6 +26,7 @@ function mapBatch(b) {
     batch_id_short: b.batch_id_short,
     cooperative_name: b.cooperative_name,
     crop_name: b.crop_name,
+    ordered_qty_kg: b.ordered_quantity_kg,
     shipped_qty_kg: b.dispatch_weight_kg,
     eta: b.dispatch_timestamp,
     status: b.current_status === 'AT_DISTRIBUTOR' ? 'CONFIRMED' : 'IN_TRANSIT',
@@ -41,6 +35,8 @@ function mapBatch(b) {
     // them so the distributor can confirm the whole delivery in one action instead of
     // clicking "Confirm Receipt" once per crop.
     transport_request_leg1: b.transport_request_leg1,
+    mismatch_reported: b.mismatch_reported,
+    mismatch_description: b.mismatch_description,
   }
 }
 
@@ -49,8 +45,6 @@ export default function IncomingDeliveries() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState('ALL')
   const [confirmTarget, setConfirmTarget] = useState(null)
-  const [confirmForm, setConfirmForm] = useState(CONFIRM_BLANK)
-  const [saving, setSaving] = useState(false)
   const [iotTarget, setIotTarget] = useState(null)
   const [iotData, setIotData] = useState(null)
   const [loadingIot, setLoadingIot] = useState(false)
@@ -58,6 +52,9 @@ export default function IncomingDeliveries() {
   const [bulkForms, setBulkForms] = useState({})         // { [deliveryId]: { received_qty_kg, quality_grade_received, loss_reason } }
   const [bulkNotes, setBulkNotes] = useState('')
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [mismatchTarget, setMismatchTarget] = useState(null)
+  const [mismatchForm, setMismatchForm] = useState({ description: '', notes: '' })
+  const [mismatchSaving, setMismatchSaving] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -88,48 +85,36 @@ export default function IncomingDeliveries() {
     }
   }
 
-  const openConfirm = (delivery) => {
-    setConfirmTarget(delivery)
-    setConfirmForm({ ...CONFIRM_BLANK, received_qty_kg: delivery.shipped_qty_kg })
+  const openConfirm = (delivery) => setConfirmTarget(delivery)
+
+  const openMismatch = (delivery) => {
+    setMismatchTarget(delivery)
+    setMismatchForm({ description: '', notes: '' })
   }
 
-  const receivedNum = Number(confirmForm.received_qty_kg) || 0
-  const shippedNum = Number(confirmTarget?.shipped_qty_kg) || 0
-  const lossKg = Math.max(0, shippedNum - receivedNum)
-  const lossPct = shippedNum > 0 ? ((lossKg / shippedNum) * 100).toFixed(1) : '0.0'
-
-  const handleConfirm = async (e) => {
+  const submitMismatch = async (e) => {
     e.preventDefault()
-    if (!confirmTarget) return
-    setSaving(true)
+    if (!mismatchTarget) return
+    if (!mismatchForm.description.trim()) { toast.error('Describe what was actually received.'); return }
+    setMismatchSaving(true)
     try {
-      // Build a precise loss_reason string from the structured shortfall form
-      let loss_reason = ''
-      if (lossKg > 0) {
-        if (confirmForm.shortfall_type === 'TRANSIT_LOSS') {
-          loss_reason = `IN_TRANSIT: ${confirmForm.transit_loss_reason}`
-        } else if (confirmForm.shortfall_type === 'NOT_DISPATCHED') {
-          loss_reason = `NOT_DISPATCHED: ${confirmForm.not_dispatched_reason} — ${lossKg}kg of ${confirmTarget.crop_name} not sent by cooperative`
-        }
-      }
-      await distributionApi.confirmReceipt(confirmTarget.batch_id, {
-        received_qty_kg: receivedNum,
-        quality_grade_received: confirmForm.quality_grade_received,
-        loss_kg: lossKg,
-        loss_pct: parseFloat(lossPct),
-        loss_reason,
-        notes: confirmForm.notes,
-        shortfall_type: confirmForm.shortfall_type || null,
-      })
-      setDeliveries(prev => prev.map(d => d.id === confirmTarget.id ? { ...d, status: 'CONFIRMED' } : d))
-      toast.success('Receipt confirmed successfully')
-    } catch {
-      setDeliveries(prev => prev.map(d => d.id === confirmTarget.id ? { ...d, status: 'CONFIRMED' } : d))
-      toast.success('Receipt confirmed')
+      await traceabilityApi.reportMismatch(mismatchTarget.batch_id, mismatchForm)
+      setDeliveries(prev => prev.map(d => d.id === mismatchTarget.id
+        ? { ...d, mismatch_reported: true, mismatch_description: mismatchForm.description }
+        : d))
+      toast.success('Mismatch reported to the cooperative')
+      setMismatchTarget(null)
+    } catch (err) {
+      const data = err.response?.data
+      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not report mismatch')
     } finally {
-      setSaving(false)
-      setConfirmTarget(null)
+      setMismatchSaving(false)
     }
+  }
+
+  const handleConfirmed = () => {
+    setDeliveries(prev => prev.map(d => d.id === confirmTarget.id ? { ...d, status: 'CONFIRMED' } : d))
+    setConfirmTarget(null)
   }
 
   const filtered = filter === 'ALL' ? deliveries : deliveries.filter(d => d.status === filter)
@@ -291,9 +276,16 @@ export default function IncomingDeliveries() {
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 font-mono text-sm font-medium text-gray-900">{d.batch_id || d.id}</td>
                   <td className="px-6 py-4 text-gray-700">{d.cooperative_name || '—'}</td>
-                  <td className="px-6 py-4 text-gray-700">{d.crop_name || '—'}</td>
+                  <td className="px-6 py-4 text-gray-700">
+                    {d.crop_name || '—'}
+                    {d.mismatch_reported && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-danger-50 text-danger-600 border border-danger-200">
+                        <FlagTriangleRight className="w-3 h-3" /> Mismatch reported
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-gray-900 font-medium">
-                    {d.shipped_qty_kg ? `${(Number(d.shipped_qty_kg) / 1000).toFixed(1)} tons` : '—'}
+                    {d.shipped_qty_kg ? `${Number(d.shipped_qty_kg).toLocaleString()} kg` : '—'}
                   </td>
                   <td className="px-6 py-4 text-gray-500">
                     {d.eta ? new Date(d.eta).toLocaleDateString('en-RW', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
@@ -311,6 +303,12 @@ export default function IncomingDeliveries() {
                             className="inline-flex items-center px-4 py-1.5 rounded-xl text-sm font-semibold text-white bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 transition-colors">
                             Confirm Receipt
                           </button>
+                          {!d.mismatch_reported && (
+                            <button onClick={() => openMismatch(d)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-danger-600 border border-danger-200 hover:bg-danger-50 transition-colors">
+                              <FlagTriangleRight className="w-3.5 h-3.5" /> Report Mismatch
+                            </button>
+                          )}
                         </>
                       )}
                       {d.status === 'CONFIRMED' && (
@@ -328,152 +326,7 @@ export default function IncomingDeliveries() {
       </div>
 
       {/* Confirm Receipt Modal */}
-      <Modal isOpen={!!confirmTarget} onClose={() => setConfirmTarget(null)}
-        title={`Confirm Receipt — ${confirmTarget?.batch_id || ''}`}>
-        {confirmTarget && (
-          <form onSubmit={handleConfirm} className="space-y-4">
-            <div className="bg-gray-50 rounded-xl p-4 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Cooperative</span>
-                <span className="font-medium text-gray-900">{confirmTarget.cooperative_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Crop</span>
-                <span className="font-medium text-gray-900">{confirmTarget.crop_name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Expected quantity</span>
-                <span className="font-medium text-gray-900">{(Number(confirmTarget.shipped_qty_kg) / 1000).toFixed(1)} tons</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="label">Received qty (kg) *</label>
-                <input type="number" className="input" required min="0"
-                  value={confirmForm.received_qty_kg}
-                  onChange={e => setConfirmForm(f => ({ ...f, received_qty_kg: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">Quality grade received</label>
-                <select className="input" value={confirmForm.quality_grade_received}
-                  onChange={e => setConfirmForm(f => ({ ...f, quality_grade_received: e.target.value }))}>
-                  {GRADE_OPTIONS.map(g => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Quantity summary */}
-            {receivedNum > 0 && (
-              <div className={`rounded-xl p-4 text-sm flex items-start gap-3 ${lossKg > 0 ? 'bg-warning-50 border border-warning-200' : 'bg-success-50 border border-success-200'}`}>
-                {lossKg > 0
-                  ? <AlertTriangle className="w-4 h-4 text-warning-500 mt-0.5 flex-shrink-0" />
-                  : <CheckCircle className="w-4 h-4 text-success-600 mt-0.5 flex-shrink-0" />}
-                <div>
-                  {lossKg > 0 ? (
-                    <>
-                      <p className="font-semibold text-warning-800">
-                        {lossKg.toLocaleString()} kg of <strong>{confirmTarget?.crop_name}</strong> unaccounted — {lossPct}% of expected quantity.
-                      </p>
-                      <p className="text-warning-700 text-xs mt-0.5">Specify below exactly what happened to these {lossKg.toLocaleString()} kg.</p>
-                    </>
-                  ) : (
-                    <p className="font-semibold text-success-700">Full quantity received — no shortfall.</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── Structured shortfall documentation ─────────────────── */}
-            {lossKg > 0 && (
-              <div className="space-y-4 border border-warning-200 rounded-xl p-4 bg-warning-50/30">
-                <div>
-                  <label className="label text-sm font-semibold">What happened to the missing {lossKg.toLocaleString()} kg of {confirmTarget?.crop_name}? *</label>
-                  <div className="space-y-2 mt-2">
-                    {[
-                      { value: 'TRANSIT_LOSS', label: 'Lost during transport', desc: 'The cooperative dispatched the full quantity — it was lost, damaged, or spoiled between pickup and here.' },
-                      { value: 'NOT_DISPATCHED', label: 'Never dispatched by cooperative', desc: 'The cooperative did not load this quantity — it was not ready, rejected at loading, or still at the cooperative.' },
-                    ].map(opt => (
-                      <label key={opt.value}
-                        className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                          confirmForm.shortfall_type === opt.value
-                            ? 'border-primary-400 bg-primary-50'
-                            : 'border-gray-200 bg-white hover:border-gray-300'
-                        }`}>
-                        <input type="radio" name="shortfall_type" value={opt.value} required
-                          checked={confirmForm.shortfall_type === opt.value}
-                          onChange={e => setConfirmForm(f => ({ ...f, shortfall_type: e.target.value }))}
-                          className="mt-0.5 flex-shrink-0 accent-primary-600" />
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">{opt.label}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Path A: Transit loss */}
-                {confirmForm.shortfall_type === 'TRANSIT_LOSS' && (
-                  <div>
-                    <label className="label">Specific cause of loss during transport *</label>
-                    <select className="input" required value={confirmForm.transit_loss_reason}
-                      onChange={e => setConfirmForm(f => ({ ...f, transit_loss_reason: e.target.value }))}>
-                      <option value="">Select cause…</option>
-                      <option value="SPOILAGE">Spoilage / Rot — temperature or time exceeded safe threshold</option>
-                      <option value="SPILLAGE">Spillage — produce spilled from packaging or vehicle</option>
-                      <option value="PHYSICAL_DAMAGE">Physical damage — bruising, crushing during handling</option>
-                      <option value="THEFT">Theft — produce stolen en route</option>
-                      <option value="MOISTURE_LOSS">Moisture loss — natural weight reduction over transit time</option>
-                      <option value="WEIGHT_DISCREPANCY">Weight discrepancy — dispatched weight does not match received weight on scale</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                )}
-
-                {/* Path B: Not dispatched by cooperative */}
-                {confirmForm.shortfall_type === 'NOT_DISPATCHED' && (
-                  <div className="space-y-3">
-                    <div className="bg-white border border-gray-200 rounded-xl p-3 text-sm text-gray-600">
-                      <p className="font-semibold text-gray-800 mb-1">Shortfall being reported to cooperative:</p>
-                      <p><strong>{confirmTarget?.crop_name}</strong> — <strong>{lossKg.toLocaleString()} kg</strong> not delivered</p>
-                      <p className="text-xs text-gray-400 mt-1">A formal notification will be sent to the cooperative with these specifics.</p>
-                    </div>
-                    <div>
-                      <label className="label">Why was this quantity not dispatched? *</label>
-                      <select className="input" required value={confirmForm.not_dispatched_reason}
-                        onChange={e => setConfirmForm(f => ({ ...f, not_dispatched_reason: e.target.value }))}>
-                        <option value="">Select reason…</option>
-                        <option value="STOCK_UNAVAILABLE">Stock unavailable — cooperative did not have the quantity ready</option>
-                        <option value="QUALITY_REJECTED_AT_LOADING">Quality rejected at loading — our driver refused this quantity due to quality below agreed grade</option>
-                        <option value="NOT_LOADED_BY_COOPERATIVE">Not loaded — cooperative failed to load this quantity before departure</option>
-                        <option value="PARTIAL_AGREEMENT">Partial agreement — cooperative and driver agreed to send a reduced quantity</option>
-                        <option value="OTHER">Other</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label className="label">Notes</label>
-              <textarea className="input" rows={2} value={confirmForm.notes}
-                onChange={e => setConfirmForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Any additional observations about this delivery…" />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => setConfirmTarget(null)} className="btn-secondary flex-1">Cancel</button>
-              <button type="submit" disabled={saving}
-                className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
-                {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                {saving ? 'Confirming…' : 'Confirm Receipt'}
-              </button>
-            </div>
-          </form>
-        )}
-      </Modal>
+      <ConfirmReceiptModal target={confirmTarget} onClose={() => setConfirmTarget(null)} onConfirmed={handleConfirmed} />
 
       {/* Bulk Confirm Receipt Modal — batches that arrived together on one trip */}
       <Modal isOpen={!!bulkGroup} onClose={() => setBulkGroup(null)}
@@ -491,7 +344,7 @@ export default function IncomingDeliveries() {
                   <div key={d.id} className="border border-gray-200 rounded-xl p-3 space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-semibold text-gray-900">{d.crop_name}</span>
-                      <span className="text-gray-400 text-xs">Expected {(Number(d.shipped_qty_kg) / 1000).toFixed(1)} tons</span>
+                      <span className="text-gray-400 text-xs">Expected {Number(d.shipped_qty_kg).toLocaleString()} kg</span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -569,6 +422,43 @@ export default function IncomingDeliveries() {
                 className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
                 {bulkSaving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {bulkSaving ? 'Confirming…' : `Confirm All ${bulkGroup.length} Batches`}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Report Mismatch Modal — content/identity mismatch, not a quantity shortfall */}
+      <Modal isOpen={!!mismatchTarget} onClose={() => setMismatchTarget(null)}
+        title={`Report Mismatch — ${mismatchTarget?.batch_id_short || mismatchTarget?.batch_id || ''}`}>
+        {mismatchTarget && (
+          <form onSubmit={submitMismatch} className="space-y-4">
+            <div className="bg-warning-50 border border-warning-200 rounded-xl p-3 text-sm text-warning-800">
+              Use this when what physically arrived doesn't match this batch's record at all —
+              not for a quantity shortfall (use Confirm Receipt for that instead).
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 text-sm">
+              <div className="flex justify-between"><span className="text-gray-500">Cooperative</span><span className="font-medium text-gray-900">{mismatchTarget.cooperative_name}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Expected crop</span><span className="font-medium text-gray-900">{mismatchTarget.crop_name}</span></div>
+            </div>
+            <div>
+              <label className="label">What did you actually receive? *</label>
+              <input className="input" required placeholder="e.g. Potatoes instead of Tomatoes"
+                value={mismatchForm.description}
+                onChange={e => setMismatchForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Notes</label>
+              <textarea className="input" rows={3} value={mismatchForm.notes}
+                onChange={e => setMismatchForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Any other details that will help the cooperative investigate…" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setMismatchTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={mismatchSaving}
+                className="btn-danger flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {mismatchSaving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {mismatchSaving ? 'Reporting…' : 'Report Mismatch'}
               </button>
             </div>
           </form>

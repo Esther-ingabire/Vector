@@ -155,12 +155,26 @@ class Trip(models.Model):
     An active or completed trip. Created when a TransportRequest is accepted and pickup is confirmed.
     """
 
+    class ConditionOnArrival(models.TextChoices):
+        GOOD             = 'GOOD',             'Good — no visible damage'
+        MINOR_DAMAGE     = 'MINOR_DAMAGE',      'Minor damage — some bruising/spillage'
+        MAJOR_DAMAGE     = 'MAJOR_DAMAGE',      'Major damage — significant spoilage/loss'
+        PARTIAL_QUANTITY = 'PARTIAL_QUANTITY',  'Partial — full cargo not delivered'
+
     transport_request        = models.OneToOneField(TransportRequest, on_delete=models.PROTECT, related_name='trip')
     actual_pickup_datetime   = models.DateTimeField(null=True, blank=True)
     actual_delivery_datetime = models.DateTimeField(null=True, blank=True)
     pickup_confirmed_at      = models.DateTimeField(null=True, blank=True)
     delivery_confirmed_at    = models.DateTimeField(null=True, blank=True)
     delivery_notes           = models.TextField(blank=True)
+
+    # Proof of delivery — captured on confirm-delivery, not just a bare "confirmed" tap.
+    recipient_name        = models.CharField(max_length=150, blank=True, help_text="Who signed for/accepted the delivery at the destination")
+    condition_on_arrival  = models.CharField(max_length=20, choices=ConditionOnArrival.choices, blank=True)
+    delivery_gps_lat      = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    delivery_gps_lng      = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    delivery_photo        = models.ImageField(upload_to='delivery_proofs/', null=True, blank=True)
+
     delay_alert_sent         = models.BooleanField(default=False, help_text="Set once a 'no recent GPS update' alert has fired for this trip.")
     created_at               = models.DateTimeField(auto_now_add=True)
 

@@ -386,7 +386,19 @@ def me(request):
 @api_view(["POST"])
 @permission_classes([IsAdminRole])
 def create_user_directly(request):
-    """Admin creates a user directly without a registration request."""
+    """
+    Admin creates a user directly without a registration request.
+    Restricted to MINAGRI_OFFICER — every other role already has a self-service Request
+    Access flow reviewed via the Registration Queue, so allowing them here too would be a
+    second, unreviewed path to the same accounts (and, without this check, nothing would
+    stop this endpoint from being called directly to mint another ADMIN account).
+    """
+    if request.data.get('role') != 'MINAGRI_OFFICER':
+        return Response(
+            {'detail': 'Direct account creation is only available for MINAGRI Officer. '
+                       'Other roles must go through Registration Queue approval.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     serializer = UserCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -512,3 +524,161 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AuditLogSerializer
     permission_classes = [IsAdminRole]
     filterset_fields = ["action", "user"]
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminRole])
+def data_integration_status(request):
+    """
+    Real per-source health for the data pipeline feeding analytics — replaces what was
+    previously a fully hardcoded mock (fixed record counts, fake "N minutes ago" timestamps
+    computed client-side, a Retry button that just faked a delay and flipped local state).
+
+    Continuous IoT/GPS streams have a documented expected posting interval, so staleness
+    relative to that interval is a real signal. Form-based sources (cooperative/distributor/
+    market agent submissions) have no fixed cadence — a quiet day isn't necessarily a fault —
+    so those report real activity counts without a fabricated red/amber/green verdict.
+    """
+    from apps.traceability.models import Batch
+    from apps.cooperatives.models import CooperativeStock, ColdStorageFacility
+    from apps.distribution.models import ProduceRequest, CollectionNotice, Order
+    from apps.market_agents.models import CollectionConfirmation, WasteReport as MarketAgentWasteReport
+    from apps.transport.models import GPSTrack, Trip
+    from apps.iot.models import IoTReading, VehicleIoTReading
+
+    now = timezone.now()
+    today = now.date()
+
+    def latest(*querysets_and_fields):
+        """Most recent timestamp across several (queryset, field_name) pairs, or None."""
+        best = None
+        for qs, field in querysets_and_fields:
+            row = qs.order_by(f"-{field}").values_list(field, flat=True).first()
+            if row and (best is None or row > best):
+                best = row
+        return best
+
+    def stream_status(last_seen, expected_interval_minutes, active_count):
+        """Health verdict for a continuous stream with a known expected posting interval."""
+        if active_count == 0:
+            return "idle", "No active trips/facilities to report from right now."
+        if last_seen is None:
+            return "error", "Expected data from active sources but none has arrived."
+        age_minutes = (now - last_seen).total_seconds() / 60
+        if age_minutes <= expected_interval_minutes * 2:
+            return "ok", None
+        if age_minutes <= expected_interval_minutes * 10:
+            return "warning", f"Last reading {int(age_minutes)} min ago — slower than the expected {expected_interval_minutes}-min interval."
+        return "error", f"No reading in {int(age_minutes)} min — well past the expected {expected_interval_minutes}-min interval."
+
+    sources = []
+
+    # ── Cooperative Inputs: dispatches, stock updates, produce request responses ──
+    coop_today = (
+        Batch.objects.filter(dispatch_timestamp__date=today).count()
+        + CooperativeStock.objects.filter(created_at__date=today).count()
+        + ProduceRequest.objects.filter(responded_at__date=today).count()
+    )
+    coop_last = latest(
+        (Batch.objects, "dispatch_timestamp"),
+        (CooperativeStock.objects, "created_at"),
+        (ProduceRequest.objects.filter(responded_at__isnull=False), "responded_at"),
+    )
+    sources.append({
+        "name": "Cooperative Inputs",
+        "description": "Dispatch records, stock updates, produce request responses",
+        "status": "ok" if coop_today > 0 else "idle",
+        "detail": None,
+        "records_today": coop_today,
+        "last_activity": coop_last,
+    })
+
+    # ── Distributor Forms: receipts, collection notices, order confirmations ──
+    dist_today = (
+        Batch.objects.filter(distributor_receipt_timestamp__date=today).count()
+        + CollectionNotice.objects.filter(created_at__date=today).count()
+        + Order.objects.filter(confirmed_at__date=today).count()
+    )
+    dist_last = latest(
+        (Batch.objects.filter(distributor_receipt_timestamp__isnull=False), "distributor_receipt_timestamp"),
+        (CollectionNotice.objects, "created_at"),
+        (Order.objects.filter(confirmed_at__isnull=False), "confirmed_at"),
+    )
+    sources.append({
+        "name": "Distributor Forms",
+        "description": "Receipt confirmations, collection notices, order confirmations",
+        "status": "ok" if dist_today > 0 else "idle",
+        "detail": None,
+        "records_today": dist_today,
+        "last_activity": dist_last,
+    })
+
+    # ── Market Agent Forms: collection confirmations, waste reports ──
+    agent_today = (
+        CollectionConfirmation.objects.filter(created_at__date=today).count()
+        + MarketAgentWasteReport.objects.filter(submitted_at__date=today).count()
+    )
+    agent_last = latest(
+        (CollectionConfirmation.objects, "created_at"),
+        (MarketAgentWasteReport.objects, "submitted_at"),
+    )
+    sources.append({
+        "name": "Market Agent Forms",
+        "description": "Collection confirmations, arrival quantities, waste reports",
+        "status": "ok" if agent_today > 0 else "idle",
+        "detail": None,
+        "records_today": agent_today,
+        "last_activity": agent_last,
+    })
+
+    # ── Transporter GPS: GPSTrack, expected every 2 minutes per active trip ──
+    active_trips = Trip.objects.filter(transport_request__status="IN_PROGRESS").count()
+    gps_today = GPSTrack.objects.filter(timestamp__date=today).count()
+    gps_last = latest((GPSTrack.objects, "timestamp"))
+    gps_status, gps_detail = stream_status(gps_last, expected_interval_minutes=2, active_count=active_trips)
+    sources.append({
+        "name": "Transporter GPS",
+        "description": "Location coordinates from active trips, posted every ~2 minutes",
+        "status": gps_status,
+        "detail": gps_detail,
+        "records_today": gps_today,
+        "last_activity": gps_last,
+    })
+
+    # ── Cold Storage IoT: IoTReading, expected every 15 minutes per sensor-equipped facility ──
+    coldchain_facilities = ColdStorageFacility.objects.filter(has_iot_sensor=True, is_active=True).count()
+    iot_today = IoTReading.objects.filter(timestamp__date=today).count()
+    iot_last = latest((IoTReading.objects, "timestamp"))
+    iot_status, iot_detail = stream_status(iot_last, expected_interval_minutes=15, active_count=coldchain_facilities)
+    sources.append({
+        "name": "Cold Storage IoT",
+        "description": "Temperature/humidity from ESP32/DHT22 sensors, expected every ~15 minutes",
+        "status": iot_status,
+        "detail": iot_detail,
+        "records_today": iot_today,
+        "last_activity": iot_last,
+    })
+
+    # ── Vehicle IoT: VehicleIoTReading, expected every ~15 minutes per active refrigerated trip ──
+    active_cold_trips = Trip.objects.filter(
+        transport_request__status="IN_PROGRESS", transport_request__requires_refrigeration=True,
+    ).count()
+    vehicle_today = VehicleIoTReading.objects.filter(timestamp__date=today).count()
+    vehicle_last = latest((VehicleIoTReading.objects, "timestamp"))
+    vehicle_status, vehicle_detail = stream_status(vehicle_last, expected_interval_minutes=15, active_count=active_cold_trips)
+    sources.append({
+        "name": "Vehicle IoT",
+        "description": "Cargo temperature from active refrigerated transport trips",
+        "status": vehicle_status,
+        "detail": vehicle_detail,
+        "records_today": vehicle_today,
+        "last_activity": vehicle_last,
+    })
+
+    for s in sources:
+        s["last_activity"] = s["last_activity"].isoformat() if s["last_activity"] else None
+
+    return Response({
+        "generated_at": now.isoformat(),
+        "sources": sources,
+    })

@@ -31,7 +31,7 @@ class DistributorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Distributor
-        fields = ['id', 'user', 'company_name', 'warehouse_location', 'warehouse_gps_lat',
+        fields = ['id', 'user', 'company_name', 'description', 'warehouse_location', 'warehouse_gps_lat',
                   'warehouse_gps_lng', 'district', 'contact_phone', 'is_active', 'name',
                   'distance_km', 'active_notices', 'contact_person', 'email', 'member_since',
                   'linked_agents_count']
@@ -53,9 +53,12 @@ class DistributorSerializer(serializers.ModelSerializer):
         return obj.market_agent_links.filter(is_active=True).count()
 
     def get_active_notices(self, obj):
+        from django.db.models import Q
         from django.utils import timezone
+        # No deadline means "open until closed manually" — still active, not excluded.
         notices = obj.collection_notices.filter(
-            is_active=True, collection_deadline__gte=timezone.now()
+            Q(collection_deadline__isnull=True) | Q(collection_deadline__gte=timezone.now()),
+            is_active=True,
         ).select_related('crop')
         return [
             {
@@ -74,12 +77,14 @@ class ProduceRequestSerializer(serializers.ModelSerializer):
     crop_name = serializers.CharField(source='crop.name', read_only=True)
     distributor_name = serializers.SerializerMethodField()
     supply_agreement_id = serializers.SerializerMethodField()
+    delivery_method_display = serializers.CharField(source='get_delivery_method_display', read_only=True)
 
     class Meta:
         model = ProduceRequest
         fields = ['id', 'distributor', 'distributor_name', 'cooperative', 'cooperative_name',
                   'crop', 'crop_name', 'quantity_kg', 'quality_grade_required',
-                  'required_delivery_date', 'additional_notes', 'status',
+                  'required_delivery_date', 'additional_notes', 'delivery_method',
+                  'delivery_method_display', 'status',
                   'cooperative_response_notes', 'responded_at', 'created_at', 'updated_at',
                   'supply_agreement_id']
         read_only_fields = ['id', 'distributor', 'responded_at', 'created_at', 'updated_at']
@@ -145,7 +150,9 @@ class CollectionNoticeSerializer(serializers.ModelSerializer):
         if 'quantity_available_kg' in data and 'available_quantity_kg' not in data:
             data['available_quantity_kg'] = data.pop('quantity_available_kg')
         if 'available_until' in data and 'collection_deadline' not in data:
-            data['collection_deadline'] = data.pop('available_until')
+            # Optional — a blank value means "no deadline", not an invalid date string.
+            value = data.pop('available_until')
+            data['collection_deadline'] = value or None
 
         # Drop frontend-only fields not on the model
         for key in ('title', 'available_from'):
@@ -158,15 +165,32 @@ class OrderSerializer(serializers.ModelSerializer):
     market_agent_name = serializers.SerializerMethodField()
     distributor_name = serializers.SerializerMethodField()
     crop_name = serializers.CharField(source='collection_notice.crop.name', read_only=True)
+    price_per_kg = serializers.DecimalField(source='collection_notice.price_per_kg', read_only=True,
+                                            max_digits=10, decimal_places=2)
+    source_batches = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = ['id', 'collection_notice', 'market_agent', 'market_agent_name',
-                  'distributor', 'distributor_name', 'crop_name',
+                  'distributor', 'distributor_name', 'crop_name', 'price_per_kg',
                   'quantity_requested_kg', 'preferred_collection_date',
                   'confirmed_quantity_kg', 'adjustment_reason',
-                  'delivery_method', 'transporter', 'status',
+                  'delivery_method', 'transporter', 'status', 'source_batches',
                   'created_at', 'confirmed_at', 'updated_at']
+
+    def get_source_batches(self, obj):
+        # Which cooperative batch(es) this order was actually filled from — see
+        # apps.distribution.views._allocate_batches_fifo, set when the distributor confirms.
+        return [
+            {
+                'batch_id': a.batch.batch_id,
+                'batch_id_short': str(a.batch.batch_id)[:8].upper(),
+                'cooperative_name': a.batch.cooperative.name,
+                'quantity_kg': a.quantity_kg,
+                'dispatch_timestamp': a.batch.dispatch_timestamp,
+            }
+            for a in obj.batch_allocations.select_related('batch__cooperative').order_by('created_at')
+        ]
         read_only_fields = ['id', 'market_agent', 'distributor', 'confirmed_at', 'created_at', 'updated_at']
 
     def get_market_agent_name(self, obj):
@@ -177,9 +201,20 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 class DistributorWasteReportSerializer(serializers.ModelSerializer):
+    crop_name = serializers.CharField(source='crop.name', read_only=True, default=None)
+
     class Meta:
         model = DistributorWasteReport
-        fields = ['id', 'distributor', 'reporting_period_start', 'reporting_period_end',
+        fields = ['id', 'distributor', 'crop', 'crop_name', 'reporting_period_start', 'reporting_period_end',
                   'quantity_moved_kg', 'quantity_discarded_kg', 'discard_reason', 'discard_notes',
                   'warehouse_spoilage_loss_pct', 'submitted_at']
         read_only_fields = ['id', 'distributor', 'warehouse_spoilage_loss_pct', 'submitted_at']
+
+    def to_internal_value(self, data):
+        data = dict(data.lists() if hasattr(data, 'lists') else data.items())
+        data = {k: (v[0] if isinstance(v, list) and len(v) == 1 else v) for k, v in data.items()}
+        if data.get('crop_name') and not data.get('crop'):
+            data['crop'] = _resolve_crop(data.pop('crop_name'))
+        else:
+            data.pop('crop_name', None)
+        return super().to_internal_value(data)

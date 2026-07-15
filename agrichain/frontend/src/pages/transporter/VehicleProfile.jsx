@@ -119,7 +119,7 @@ function VehicleCard({ vehicle, onSaved }) {
             </div>
             <div>
               <label className="label">Capacity (kg)</label>
-              <input type="number" className="input" value={form.capacity_kg} min="1" required
+              <input type="number" className="input" value={form.capacity_kg} min="0.01" step="0.01" required
                 onChange={e => setForm(f => ({ ...f, capacity_kg: e.target.value }))} />
             </div>
             <div>
@@ -258,14 +258,14 @@ export default function VehicleProfile() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 -mx-6 px-6 py-3 -mt-6 bg-gray-50/95 backdrop-blur-sm border-b border-gray-100 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Vehicle Profile</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {vehicles.length > 1 ? `${vehicles.length} vehicles registered.` : 'Your registered vehicle.'}
           </p>
         </div>
-        <button onClick={() => setShowNew(v => !v)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => setShowNew(v => !v)} className="btn-primary flex items-center gap-2 flex-shrink-0">
           <Plus className="w-4 h-4" /> Register Vehicle
         </button>
       </div>

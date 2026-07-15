@@ -241,7 +241,7 @@ export default function DashboardScreen() {
             icon="warning-outline"
             label="Submit Waste Report"
             color={C.warning}
-            onPress={() => navigation.navigate('Reports')}
+            onPress={() => navigation.navigate('Waste')}
           />
           <QuickAction
             icon="megaphone-outline"

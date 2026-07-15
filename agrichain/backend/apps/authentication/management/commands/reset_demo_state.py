@@ -9,7 +9,9 @@ What it resets:
   - All demo transport company requests → back to PENDING (ready to dispatch)
   - All active/accepted trips for demo drivers → cancelled, requests restored to PENDING
   - 3 fresh PENDING requests created for individual drivers (Patrick, Diane, Claudine)
-  - Eric's active trip restored (RAB 456E stays busy for the is_busy demo)
+  - Patrick (Kalinda) and Claudine (Gasana) each get a fresh active trip with GPS tracks,
+    temperature readings (one breach), and an open incident — so both companies' Fleet
+    Monitoring pages have a live map, breach, and incident to show right after a reset.
 
   WAREHOUSE
   - All accepted/declined warehouse rental requests → back to PENDING
@@ -119,7 +121,7 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'  {existing_pending} PENDING request(s) already exist — skipped recreation.')
 
-        # ── 5. Recreate 3 pending requests for individual drivers ─────────
+        # ── 5. Recreate pending requests for individual drivers ────────────
         try:
             patrick  = Transporter.objects.get(user__username='driver.mugenzi')
             diane    = Transporter.objects.get(user__username='driver.uwase')
@@ -130,46 +132,139 @@ class Command(BaseCommand):
             ).delete()
             driver_requests = [
                 (patrick,  'Kinigi Sector',        -1.474, 29.573, 'Kigali Nyabugogo Market', -1.938, 30.055, 'Tomatoes — cold chain', 850,  True),
+                (patrick,  'Musanze Market Hub',    -1.499, 29.635, 'Kimironko Wholesale Market', -1.941, 30.072, 'Irish Potatoes — Grade A', 1450, False),
                 (diane,    'Musanze Town Centre',   -1.499, 29.635, 'Huye Open Market',        -2.597, 29.737, 'Potatoes — bulk',       1400, False),
                 (claudine, 'Gakenke District Hub',  -1.690, 29.790, 'Kigali Kimironko Market', -1.941, 30.072, 'Avocados — Grade A',    600,  False),
             ]
-            for driver, pick, p_lat, p_lng, dest, d_lat, d_lng, cargo, kg, refrig in driver_requests:
+            for i, (driver, pick, p_lat, p_lng, dest, d_lat, d_lng, cargo, kg, refrig) in enumerate(driver_requests):
                 TransportRequest.objects.create(
                     transporter=driver, requested_by_cooperative=coop, leg_number=1,
                     pickup_location=pick, pickup_gps_lat=p_lat, pickup_gps_lng=p_lng,
                     destination=dest, destination_gps_lat=d_lat, destination_gps_lng=d_lng,
                     cargo_description=cargo, estimated_cargo_weight_kg=kg,
                     requires_refrigeration=refrig,
-                    required_pickup_datetime=now + datetime.timedelta(hours=8),
+                    required_pickup_datetime=now + datetime.timedelta(hours=8 + i),
                     status='PENDING',
                 )
-            self.stdout.write(f'  Created 3 PENDING requests for Patrick, Diane, and Claudine.')
+            self.stdout.write(f'  Created {len(driver_requests)} PENDING requests for Patrick (x2), Diane, and Claudine.')
         except Transporter.DoesNotExist:
             pass
 
-        # ── 6. Restore Eric's active trip (so is_busy demo still works) ───
+        # ── 5b. Give Patrick a pre-accepted multi-stop run, so "Active Trip" shows the
+        # per-stop delivery checklist, and Kalinda's Fleet Monitoring has real GPS/
+        # temperature/incident telemetry to display, ready to demo without accepting
+        # anything live ──
+        from apps.iot.models import VehicleIoTReading
+        from apps.transport.models import GPSTrack, IncidentReport
+
+        def lerp(a, b, t):
+            return round(a + (b - a) * t, 6)
+
         try:
-            eric = Transporter.objects.get(user__username='driver.nkurunziza')
-            v_busy = Vehicle.objects.filter(transporter=eric, plate_number='RAB 456E').first()
-            if v_busy and not Trip.objects.filter(
-                transport_request__transporter=eric,
-                pickup_confirmed_at__isnull=False,
-                delivery_confirmed_at__isnull=True,
-            ).exists():
+            import uuid as uuid_lib
+            patrick = Transporter.objects.get(user__username='driver.mugenzi')
+            already_running = TransportRequest.objects.filter(
+                transporter=patrick, run_id__isnull=False,
+                status__in=['ACCEPTED', 'IN_PROGRESS'],
+            ).exists()
+            if not already_running:
+                run_id = uuid_lib.uuid4()
+                # Last flag on each tuple marks whether that stop's trip runs a temperature
+                # breach, so Fleet Monitoring's breach counter/map marker have a real case.
+                multi_stops = [
+                    ('Musanze Collection Point', -1.499, 29.635, 'Kigali Nyabugogo Market', -1.938, 30.055,
+                     'Carrots — mixed crates', 620, False, 1, False),
+                    ('Musanze Collection Point', -1.499, 29.635, 'Kimironko Wholesale Market', -1.941, 30.072,
+                     'Cabbages — Grade B', 540, False, 2, True),
+                ]
+                vehicle = Vehicle.objects.filter(transporter=patrick, is_active=True).first()
+                pickup_at = now - datetime.timedelta(minutes=30)
+                for pick, p_lat, p_lng, dest, d_lat, d_lng, cargo, kg, refrig, seq, breach_demo in multi_stops:
+                    req = TransportRequest.objects.create(
+                        transporter=patrick, requested_by_cooperative=coop, leg_number=1,
+                        run_id=run_id, stop_sequence=seq,
+                        pickup_location=pick, pickup_gps_lat=p_lat, pickup_gps_lng=p_lng,
+                        destination=dest, destination_gps_lat=d_lat, destination_gps_lng=d_lng,
+                        cargo_description=cargo, estimated_cargo_weight_kg=kg,
+                        requires_refrigeration=refrig,
+                        required_pickup_datetime=now - datetime.timedelta(hours=1),
+                        status='ACCEPTED', vehicle=vehicle, accepted_at=now - datetime.timedelta(minutes=45),
+                    )
+                    trip = Trip.objects.create(
+                        transport_request=req,
+                        pickup_confirmed_at=pickup_at,
+                    )
+                    for i, progress in enumerate((0.3, 0.5, 0.7)):
+                        GPSTrack.objects.create(
+                            trip=trip,
+                            latitude=lerp(p_lat, d_lat, progress),
+                            longitude=lerp(p_lng, d_lng, progress),
+                            speed_kmh=round(38 + i * 4, 1),
+                            timestamp=pickup_at + datetime.timedelta(minutes=10 * (i + 1)),
+                        )
+                    for i in range(3):
+                        temp = 9.2 if (breach_demo and i == 2) else round(6.0 + i * 0.4, 1)
+                        VehicleIoTReading.objects.create(
+                            trip=trip,
+                            temperature_celsius=temp,
+                            timestamp=pickup_at + datetime.timedelta(minutes=12 * (i + 1)),
+                        )
+                    if seq == 1:
+                        IncidentReport.objects.create(
+                            trip=trip, incident_type='FLAT_TIRE',
+                            description='Flat tire just outside Musanze — changing now, expect ~20 min delay.',
+                            resolved=False,
+                        )
+                self.stdout.write(
+                    '  Created a 2-stop multi-stop run for Patrick with GPS/temperature telemetry '
+                    '(one breach) and an open incident — ready in Active Trip / Fleet Monitoring.'
+                )
+        except Transporter.DoesNotExist:
+            pass
+
+        # ── 6. Give Gasana Logistics an active trip too, with the same GPS/temperature/
+        # incident telemetry, so its Fleet Monitoring isn't left empty after a reset ──
+        try:
+            claudine = Transporter.objects.get(user__username='driver.mutesi')
+            already_running = TransportRequest.objects.filter(
+                transporter=claudine, status__in=['ACCEPTED', 'IN_PROGRESS'],
+            ).exists()
+            if not already_running:
+                pick, p_lat, p_lng = 'Gakenke District Hub', -1.690, 29.790
+                dest, d_lat, d_lng = 'Kigali Kimironko Market', -1.941, 30.072
+                pickup_at = now - datetime.timedelta(minutes=50)
                 req = TransportRequest.objects.create(
-                    transporter=eric, requested_by_cooperative=coop, leg_number=1,
-                    pickup_location='Musanze Central', pickup_gps_lat=-1.499, pickup_gps_lng=29.635,
-                    destination='Kigali CBD', destination_gps_lat=-1.944, destination_gps_lng=30.060,
+                    transporter=claudine, requested_by_cooperative=coop, leg_number=1,
+                    pickup_location=pick, pickup_gps_lat=p_lat, pickup_gps_lng=p_lng,
+                    destination=dest, destination_gps_lat=d_lat, destination_gps_lng=d_lng,
                     cargo_description='Avocados — cold chain', estimated_cargo_weight_kg=800,
                     requires_refrigeration=True,
                     required_pickup_datetime=now - datetime.timedelta(hours=2),
-                    status='ACCEPTED', vehicle=v_busy,
+                    status='ACCEPTED', accepted_at=pickup_at,
                 )
-                Trip.objects.create(
-                    transport_request=req,
-                    pickup_confirmed_at=now - datetime.timedelta(hours=1),
+                trip = Trip.objects.create(transport_request=req, pickup_confirmed_at=pickup_at)
+                for i, progress in enumerate((0.35, 0.55, 0.75)):
+                    GPSTrack.objects.create(
+                        trip=trip,
+                        latitude=lerp(p_lat, d_lat, progress),
+                        longitude=lerp(p_lng, d_lng, progress),
+                        speed_kmh=round(40 + i * 3, 1),
+                        timestamp=pickup_at + datetime.timedelta(minutes=12 * (i + 1)),
+                    )
+                for i in range(3):
+                    VehicleIoTReading.objects.create(
+                        trip=trip, temperature_celsius=round(5.5 + i * 0.3, 1),
+                        timestamp=pickup_at + datetime.timedelta(minutes=15 * (i + 1)),
+                    )
+                IncidentReport.objects.create(
+                    trip=trip, incident_type='ROAD_CLOSURE',
+                    description='Detour near Base due to road works — adding roughly 30 minutes.',
+                    resolved=False,
                 )
-                self.stdout.write('  Restored Eric Nkurunziza\'s active trip (RAB 456E busy demo).')
+                self.stdout.write(
+                    '  Created an active trip for Claudine (Gasana Logistics) with GPS/temperature '
+                    'telemetry and an open incident — ready in Fleet Monitoring.'
+                )
         except Transporter.DoesNotExist:
             pass
 
@@ -250,6 +345,83 @@ class Command(BaseCommand):
                     WarehouseRentalRequest.objects.create(cooperative=c, facility=f,
                         requested_capacity_kg=kg, notes=note, status='PENDING')
                 self.stdout.write('  Created 4 fresh PENDING warehouse rental requests.')
+
+        # ── 9. Reactivate any suspended demo drivers, resolve back any incidents ──
+        from apps.transport.models import IncidentReport
+        reactivated = Transporter.objects.filter(
+            id__in=driver_ids, is_active=False
+        ).update(is_active=True)
+        if reactivated:
+            self.stdout.write(f'  Reactivated {reactivated} suspended demo driver(s).')
+
+        reopened = IncidentReport.objects.filter(
+            trip__transport_request__transporter_id__in=all_transporter_ids, resolved=True
+        ).update(resolved=False)
+        if reopened:
+            self.stdout.write(f'  Re-opened {reopened} incident(s) back to unresolved.')
+
+        # ── 10. Keep "today" non-empty for reports, for WHICHEVER account is used ──
+        # Seed data is created in one-off batches on whatever date it was seeded, so a
+        # "Today"/"This week" report filter comes back empty on any day that isn't the
+        # seeding date. Bumping just a few of the globally-most-recent records (the old
+        # approach) mostly missed whichever specific account you actually log in with —
+        # this instead bumps the most recent record PER OWNING ACCOUNT (per distributor,
+        # per cooperative, per market agent, per warehouse manager), so any demo account
+        # with any history at all gets at least one "today" record. A record dated today
+        # satisfies Today/This week/This month/Last 30 days simultaneously, since all of
+        # those ranges include today.
+        from apps.distribution.models import Order, ProduceRequest
+        from apps.market_agents.models import CollectionConfirmation
+        from apps.traceability.models import Batch
+        from apps.cooperatives.models import WarehouseRentalRequest
+
+        def bump_latest_per_account(qs, group_field, date_field, minutes_apart=6):
+            ids = list(
+                qs.order_by(group_field, f'-{date_field}')
+                  .distinct(group_field)
+                  .values_list('id', flat=True)
+            )
+            for i, obj_id in enumerate(ids):
+                qs.model.objects.filter(id=obj_id).update(
+                    **{date_field: now - datetime.timedelta(minutes=i * minutes_apart)}
+                )
+            return len(ids)
+
+        touched = 0
+        # Only touch records still in their initial state (no confirmed_at/responded_at/etc.
+        # set yet), so bumping the timestamp forward can't land it after a later,
+        # already-past stage (e.g. "confirmed" before "created").
+        # NOTE: group by the raw "<field>_id" column, not the bare FK field name — Django
+        # expands a bare FK field in order_by()/distinct() into the *related model's*
+        # Meta.ordering fields (e.g. market agent's stall name), which breaks Postgres'
+        # requirement that DISTINCT ON columns exactly match the leading ORDER BY columns.
+        touched += bump_latest_per_account(
+            Order.objects.filter(status='PENDING_CONFIRMATION', confirmed_at__isnull=True),
+            'distributor_id', 'created_at',
+        )
+        touched += bump_latest_per_account(
+            ProduceRequest.objects.filter(status='PENDING', responded_at__isnull=True),
+            'distributor_id', 'created_at',
+        )
+        touched += bump_latest_per_account(
+            CollectionConfirmation.objects.all(), 'market_agent_id', 'collected_at',
+        )
+        # Only batches with no downstream timestamp yet, so bumping one stage forward can
+        # never land it after a later stage still sitting in the past.
+        touched += bump_latest_per_account(
+            Batch.objects.filter(current_status__in=['AT_COOPERATIVE', 'IN_TRANSIT_LEG1']),
+            'cooperative_id', 'dispatch_timestamp',
+        )
+        touched += bump_latest_per_account(
+            Batch.objects.filter(current_status='AT_DISTRIBUTOR'),
+            'received_by_distributor_id', 'distributor_receipt_timestamp',
+        )
+        touched += bump_latest_per_account(
+            WarehouseRentalRequest.objects.filter(status='PENDING'),
+            'facility__warehouse_manager_id', 'created_at',
+        )
+        if touched:
+            self.stdout.write(f'  Refreshed {touched} record timestamp(s) to today, one per account, so "Today"/"This week" report filters have data no matter which demo account you use.')
 
         self.stdout.write(self.style.SUCCESS('\nDEMO STATE RESET. Ready for presentation!\n'))
 

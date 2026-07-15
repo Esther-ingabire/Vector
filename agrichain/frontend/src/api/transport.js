@@ -14,7 +14,9 @@ export const transportApi = {
   getMyActiveTrip: (config) => apiClient.get('/transport/trips/active/', config),
   getMyTripHistory: (params) => apiClient.get('/transport/trips/', { params }),
   confirmPickup: (tripId, data) => apiClient.post(`/transport/trips/${tripId}/confirm-pickup/`, data),
-  confirmDelivery: (tripId, data) => apiClient.post(`/transport/trips/${tripId}/confirm-delivery/`, data),
+  // data may be a FormData instance (when a delivery photo is attached) or a plain object
+  confirmDelivery: (tripId, data) => apiClient.post(`/transport/trips/${tripId}/confirm-delivery/`, data,
+    data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
 
   // GPS tracking
   postGPSUpdate: (tripId, data) => apiClient.post(`/transport/trips/${tripId}/gps/`, data),
@@ -32,6 +34,8 @@ export const transportApi = {
   // Transport Company → Driver sub-accounts
   getMyDrivers: (config) => apiClient.get('/transport/transporters/my-drivers/', config),
   registerDriver: (data) => apiClient.post('/transport/transporters/register-driver/', data),
+  updateDriver: (id, data) => apiClient.patch(`/transport/transporters/${id}/manage-driver/`, data),
+  suspendDriver: (id) => apiClient.delete(`/transport/transporters/${id}/manage-driver/`),
   getMyRatings: (config) => apiClient.get('/transport/transporters/my-ratings/', config),
 
   // Fleet IoT monitoring + incident alerts

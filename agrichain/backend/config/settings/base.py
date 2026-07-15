@@ -48,6 +48,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -77,16 +78,25 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+# Hosted Postgres providers (Render, Neon, Railway...) give a single DATABASE_URL —
+# prefer that when set, otherwise fall back to the individual DB_* vars used locally.
+import dj_database_url
+
+if config('DATABASE_URL', default=''):
+    DATABASES = {
+        'default': dj_database_url.config(env='DATABASE_URL', conn_max_age=600, ssl_require=True)
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config('DB_NAME'),
+            'USER': config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
+        }
+    }
 
 AUTH_USER_MODEL = 'authentication.User'
 
@@ -105,6 +115,10 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+# NOT set here deliberately: whitenoise's manifest storage requires `collectstatic` to
+# have been run first (only true for a real production build) — set only in
+# production.py, so local dev (which never runs collectstatic) keeps working normally,
+# e.g. opening /admin/ locally wouldn't otherwise throw a "missing manifest entry" error.
 
 MEDIA_URL = config('MEDIA_URL', default='/media/')
 MEDIA_ROOT = BASE_DIR / config('MEDIA_ROOT', default='media')
@@ -139,9 +153,15 @@ REST_FRAMEWORK = {
 }
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
+# Kept short deliberately: the frontend silently refreshes the access token on expiry, and
+# since ROTATE_REFRESH_TOKENS blacklists the old refresh token on each rotation while the
+# frontend only ever persists the original one, a session actually hard-expires after roughly
+# 2x ACCESS_TOKEN_LIFETIME regardless of REFRESH_TOKEN_LIFETIME. A long refresh lifetime here
+# doesn't buy a longer session — it just means an idle browser tab can silently reopen into a
+# role's dashboard well after the user thinks they've "left" the system.
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', default=60, cast=int)),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=7, cast=int)),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', default=15, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=1, cast=int)),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
@@ -170,10 +190,13 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='ChainSight <noreply@chainsight.rw>')
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# Extra origins (e.g. the deployed frontend URL) are added via env var, on top of the
+# local dev defaults — so production doesn't need to duplicate the localhost entries.
+_extra_cors_origins = [o.strip() for o in config('CORS_EXTRA_ORIGINS', default='').split(',') if o.strip()]
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://localhost:3000',
-]
+] + _extra_cors_origins
 CORS_ALLOW_CREDENTIALS = True
 
 # ── drf-spectacular (Swagger) ─────────────────────────────────────────────────

@@ -1,16 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { LayoutDashboard, ClipboardList, ShoppingCart, Settings, FileDown, QrCode, Trash2, Users, Building2, UserCheck, Thermometer } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, Settings, FileDown, QrCode, Trash2, Users, UserCheck, Thermometer, CheckCircle } from 'lucide-react'
 import Sidebar from '../../components/layout/Sidebar.jsx'
 import TopBar from '../../components/layout/TopBar.jsx'
 import DistributorDashboard from './DistributorDashboard.jsx'
 import OrderManagement from './OrderManagement.jsx'
-import MarketAgentOrders from './MarketAgentOrders.jsx'
 import MarketAgents from './MarketAgents.jsx'
 import IncomingDeliveries from './IncomingDeliveries.jsx'
 import DistributorTraceability from './DistributorTraceability.jsx'
-import DistributorProfilePage from './DistributorProfilePage.jsx'
 import DistributorFleetMonitoring from './DistributorFleetMonitoring.jsx'
 import WasteReportPage from './WasteReportPage.jsx'
+import DeliveryConfirmations from './DeliveryConfirmations.jsx'
 import Transporters from './Transporters.jsx'
 import SettingsPage from '../shared/SettingsPage.jsx'
 import RoleReportsPage from '../shared/RoleReportsPage.jsx'
@@ -18,14 +17,13 @@ import RoleReportsPage from '../shared/RoleReportsPage.jsx'
 const navItems = [
   { to: '/distributor',              label: 'Dashboard',             icon: LayoutDashboard, end: true },
   { to: '/distributor/orders',       label: 'Orders & Cooperatives', icon: ClipboardList },
-  { to: '/distributor/agent-orders', label: 'Market Agent Orders',   icon: ShoppingCart },
   { to: '/distributor/agents',       label: 'Market Agents',         icon: UserCheck },
+  { to: '/distributor/collections',  label: 'Delivery Confirmations',icon: CheckCircle },
   { to: '/distributor/transporters',    label: 'Transporters',     icon: Users },
   { to: '/distributor/fleet-monitoring',label: 'Fleet Monitoring', icon: Thermometer },
   { to: '/distributor/traceability',    label: 'Traceability',     icon: QrCode },
   { to: '/distributor/waste',        label: 'Waste Report',          icon: Trash2 },
   { to: '/distributor/reports',      label: 'Reports',               icon: FileDown },
-  { to: '/distributor/profile',      label: 'Organisation Profile',  icon: Building2 },
   { to: '/distributor/settings',     label: 'Settings',              icon: Settings },
 ]
 
@@ -39,15 +37,15 @@ export default function DistributorLayout() {
           <Routes>
             <Route index element={<DistributorDashboard />} />
             <Route path="orders"       element={<OrderManagement />} />
-            <Route path="agent-orders" element={<MarketAgentOrders />} />
+            <Route path="agent-orders" element={<Navigate to="/distributor/agents" replace />} />
             <Route path="agents"       element={<MarketAgents />} />
+            <Route path="collections"  element={<DeliveryConfirmations />} />
             <Route path="deliveries"   element={<IncomingDeliveries />} />
             <Route path="transporters"     element={<Transporters />} />
             <Route path="fleet-monitoring" element={<DistributorFleetMonitoring />} />
             <Route path="traceability" element={<DistributorTraceability />} />
             <Route path="waste"        element={<WasteReportPage />} />
             <Route path="reports"      element={<RoleReportsPage />} />
-            <Route path="profile"      element={<DistributorProfilePage />} />
             <Route path="settings"     element={<SettingsPage />} />
             <Route path="*"            element={<Navigate to="/distributor" replace />} />
           </Routes>

@@ -10,6 +10,7 @@ import PublicRoute from './components/layout/PublicRoute.jsx'
 
 // Landing page
 import LandingPage from './pages/LandingPage.jsx'
+import TrackBatchPage from './pages/public/TrackBatchPage.jsx'
 
 // Auth pages
 import LoginPage from './pages/auth/LoginPage.jsx'
@@ -36,6 +37,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/track/:batchId" element={<TrackBatchPage />} />
 
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
           <Route path="/verify-otp" element={<PublicRoute><OTPPage /></PublicRoute>} />

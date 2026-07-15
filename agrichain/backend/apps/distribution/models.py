@@ -16,6 +16,7 @@ class Distributor(models.Model):
                                              related_name='distributor_profile',
                                              limit_choices_to={'role': 'DISTRIBUTOR'})
     company_name      = models.CharField(max_length=200, blank=True)
+    description       = models.TextField(blank=True, help_text="What this distributor deals in — shown to cooperatives and market agents browsing.")
     warehouse_location = models.CharField(max_length=300)
     warehouse_gps_lat  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     warehouse_gps_lng  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -68,6 +69,10 @@ class ProduceRequest(models.Model):
         GRADE_B = 'B', 'Grade B — Standard'
         GRADE_C = 'C', 'Grade C — Any Available'
 
+    class DeliveryMethod(models.TextChoices):
+        SELF_COLLECTION      = 'SELF_COLLECTION',      'Distributor Self-Collection'
+        TRANSPORTER_DELIVERY = 'TRANSPORTER_DELIVERY',  'Cooperative-Arranged Transporter Delivery'
+
     distributor    = models.ForeignKey(Distributor, on_delete=models.CASCADE, related_name='produce_requests')
     cooperative    = models.ForeignKey('cooperatives.Cooperative', on_delete=models.PROTECT, related_name='produce_requests_received')
     crop           = models.ForeignKey('cooperatives.Crop', on_delete=models.PROTECT)
@@ -75,6 +80,13 @@ class ProduceRequest(models.Model):
     quality_grade_required = models.CharField(max_length=1, choices=QualityGrade.choices)
     required_delivery_date = models.DateField()
     additional_notes = models.TextField(blank=True)
+
+    # Set by the distributor when the request is made — mirrors Order.delivery_method on the
+    # downstream (distributor -> market agent) leg, so the cooperative knows upfront whether
+    # to expect the distributor's own vehicle or to arrange a TransportRequest themselves.
+    delivery_method = models.CharField(
+        max_length=25, choices=DeliveryMethod.choices, default=DeliveryMethod.TRANSPORTER_DELIVERY,
+    )
 
     status             = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     cooperative_response_notes = models.TextField(blank=True)
@@ -117,7 +129,8 @@ class CollectionNotice(models.Model):
     available_quantity_kg = models.DecimalField(max_digits=10, decimal_places=2)
     price_per_kg         = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
                                                help_text="RWF per kg — lets market agents compare distributors before connecting.")
-    collection_deadline  = models.DateTimeField()
+    collection_deadline  = models.DateTimeField(null=True, blank=True,
+                                                help_text="Optional — leave blank to keep the listing open until you close it manually.")
     pickup_location      = models.CharField(max_length=300)
     pickup_gps_lat       = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     pickup_gps_lng       = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -196,6 +209,10 @@ class DistributorWasteReport(models.Model):
         OTHER     = 'OTHER',     'Other — see notes'
 
     distributor             = models.ForeignKey(Distributor, on_delete=models.PROTECT, related_name='waste_reports')
+    # Nullable for the same reason as CooperativeWasteReport.crop — grandfathers in reports
+    # filed before this field existed; the multi-crop-row submission form always sets it now.
+    crop                    = models.ForeignKey('cooperatives.Crop', on_delete=models.PROTECT, null=True, blank=True,
+                                                 related_name='distributor_waste_reports')
     reporting_period_start  = models.DateField()
     reporting_period_end    = models.DateField()
 

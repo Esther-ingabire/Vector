@@ -176,8 +176,9 @@ export default function NoticesPage() {
       ) : (
         <div className="space-y-4">
           {ordered.map(notice => {
-            const deadline = new Date(notice.collection_deadline)
-            const deadlineStr = deadline.toLocaleDateString('en-RW', { day: 'numeric', month: 'short', year: 'numeric' })
+            const deadlineStr = notice.collection_deadline
+              ? new Date(notice.collection_deadline).toLocaleDateString('en-RW', { day: 'numeric', month: 'short', year: 'numeric' })
+              : null
             const qtyTons = (Number(notice.available_quantity_kg) / 1000).toFixed(1)
             return (
               <div key={notice.id} className="card">
@@ -201,7 +202,7 @@ export default function NoticesPage() {
                     )}
                   </div>
                   <p className="text-sm text-gray-400 flex items-center gap-1 whitespace-nowrap">
-                    <Calendar className="w-3.5 h-3.5" /> Until {deadlineStr}
+                    <Calendar className="w-3.5 h-3.5" /> {deadlineStr ? `Until ${deadlineStr}` : 'Open — no deadline'}
                   </p>
                 </div>
 

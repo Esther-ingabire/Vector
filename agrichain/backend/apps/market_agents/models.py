@@ -119,6 +119,10 @@ class WasteReport(models.Model):
     market_agent           = models.ForeignKey(MarketAgent, on_delete=models.PROTECT, related_name='waste_reports')
     order                  = models.ForeignKey('distribution.Order', on_delete=models.PROTECT,
                                                related_name='waste_reports', null=True, blank=True)
+    # Nullable for the same reason as CooperativeWasteReport.crop — grandfathers in reports
+    # filed before this field existed; the multi-crop-row submission form always sets it now.
+    crop                   = models.ForeignKey('cooperatives.Crop', on_delete=models.PROTECT, null=True, blank=True,
+                                               related_name='market_agent_waste_reports')
     reporting_period_start = models.DateField()
     reporting_period_end   = models.DateField()
 

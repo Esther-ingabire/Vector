@@ -33,6 +33,15 @@ const INCIDENT_TYPES = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+// Matches Trip.ConditionOnArrival on the backend — confirm-delivery rejects anything else
+// with a 400, so these values must stay in sync with that model.
+const CONDITION_OPTIONS = [
+  { value: 'GOOD', label: 'Good', desc: 'No visible damage' },
+  { value: 'MINOR_DAMAGE', label: 'Minor damage', desc: 'Some bruising or spillage' },
+  { value: 'MAJOR_DAMAGE', label: 'Major damage', desc: 'Significant spoilage or loss' },
+  { value: 'PARTIAL_QUANTITY', label: 'Partial delivery', desc: 'Full cargo not delivered' },
+];
+
 function formatDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-RW', {
@@ -93,6 +102,15 @@ export default function ActiveTripScreen() {
   const [incidentDescription, setIncidentDescription] = useState('');
   const [submittingIncident, setSubmittingIncident] = useState(false);
   const [latestTemp, setLatestTemp] = useState(null);
+
+  // Proof-of-delivery form state — recipient name + condition are required by the backend,
+  // so "Mark as Delivered" opens this modal instead of firing an empty confirm straight away.
+  const [deliveryModalVisible, setDeliveryModalVisible] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [conditionOnArrival, setConditionOnArrival] = useState('');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [deliveryGps, setDeliveryGps] = useState(null); // { lat, lng } | null
+  const [locatingDelivery, setLocatingDelivery] = useState(false);
 
   const fetchTrip = useCallback(async (isRefresh = false) => {
     if (!isRefresh) setLoading(true);
@@ -189,29 +207,58 @@ export default function ActiveTripScreen() {
     );
   };
 
-  const handleMarkDelivered = () => {
-    Alert.alert(
-      'Confirm Delivery',
-      'Are you sure you want to mark this trip as delivered? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mark Delivered',
-          onPress: async () => {
-            setDelivering(true);
-            try {
-              await confirmDelivery(trip.id, {});
-              Alert.alert('Success', 'Trip marked as delivered!');
-              setTrip(null);
-            } catch (err) {
-              Alert.alert('Error', err?.response?.data?.detail || 'Could not mark as delivered.');
-            } finally {
-              setDelivering(false);
-            }
-          },
-        },
-      ],
-    );
+  const openDeliveryModal = () => {
+    setRecipientName('');
+    setConditionOnArrival('');
+    setDeliveryNotes('');
+    setDeliveryGps(null);
+    setDeliveryModalVisible(true);
+  };
+
+  const captureDeliveryLocation = async () => {
+    setLocatingDelivery(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location unavailable', 'Permission denied — confirming without GPS.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setDeliveryGps({ lat: position.coords.latitude, lng: position.coords.longitude });
+    } catch {
+      Alert.alert('Location unavailable', 'Could not capture location — confirming without GPS.');
+    } finally {
+      setLocatingDelivery(false);
+    }
+  };
+
+  const handleSubmitDelivery = async () => {
+    if (!recipientName.trim()) {
+      Alert.alert('Recipient required', 'Enter who received the delivery.');
+      return;
+    }
+    if (!conditionOnArrival) {
+      Alert.alert('Condition required', 'Select the condition of the cargo on arrival.');
+      return;
+    }
+    setDelivering(true);
+    try {
+      await confirmDelivery(trip.id, {
+        recipient_name: recipientName.trim(),
+        condition_on_arrival: conditionOnArrival,
+        notes: deliveryNotes,
+        ...(deliveryGps ? { delivery_gps_lat: deliveryGps.lat, delivery_gps_lng: deliveryGps.lng } : {}),
+      });
+      setDeliveryModalVisible(false);
+      Alert.alert('Success', 'Trip marked as delivered!');
+      setTrip(null);
+    } catch (err) {
+      const data = err?.response?.data;
+      const message = data ? Object.values(data).flat().join(' ') : 'Could not mark as delivered.';
+      Alert.alert('Error', message);
+    } finally {
+      setDelivering(false);
+    }
   };
 
   const handleSubmitIncident = async () => {
@@ -397,7 +444,7 @@ export default function ActiveTripScreen() {
             {trip.request?.status === 'IN_PROGRESS' && (
               <TouchableOpacity
                 style={[S.button, { marginTop: 8 }, delivering && { opacity: 0.6 }]}
-                onPress={handleMarkDelivered}
+                onPress={openDeliveryModal}
                 disabled={delivering}
                 activeOpacity={0.85}
               >
@@ -472,6 +519,96 @@ export default function ActiveTripScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={deliveryModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDeliveryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView style={styles.modalCard} contentContainerStyle={{ paddingBottom: 8 }}>
+            <Text style={styles.cardTitle}>Confirm Delivery</Text>
+
+            <Text style={styles.fieldLabel}>Received by *</Text>
+            <TextInput
+              style={styles.descriptionInput}
+              placeholder="Name of person who accepted the delivery"
+              placeholderTextColor={C.gray400}
+              value={recipientName}
+              onChangeText={setRecipientName}
+            />
+
+            <Text style={styles.fieldLabel}>Condition on arrival *</Text>
+            <View style={{ gap: 8, marginBottom: 16 }}>
+              {CONDITION_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.conditionOption, conditionOnArrival === opt.value && styles.conditionOptionActive]}
+                  onPress={() => setConditionOnArrival(opt.value)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.radioCircle, conditionOnArrival === opt.value && styles.radioCircleActive]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.conditionLabel}>{opt.label}</Text>
+                    <Text style={styles.conditionDesc}>{opt.desc}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={styles.gpsButton}
+              onPress={captureDeliveryLocation}
+              disabled={locatingDelivery}
+              activeOpacity={0.8}
+            >
+              {locatingDelivery ? (
+                <ActivityIndicator size="small" color={C.primary} />
+              ) : (
+                <Ionicons name="location-outline" size={16} color={deliveryGps ? C.success : C.primary} />
+              )}
+              <Text style={[styles.gpsButtonText, deliveryGps && { color: C.success }]}>
+                {deliveryGps ? 'Delivery location captured' : 'Attach delivery location (optional)'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.fieldLabel}>Notes (optional)</Text>
+            <TextInput
+              style={styles.descriptionInput}
+              placeholder="Anything else worth recording about this delivery…"
+              placeholderTextColor={C.gray400}
+              value={deliveryNotes}
+              onChangeText={setDeliveryNotes}
+              multiline
+              numberOfLines={3}
+            />
+
+            <Text style={styles.helperText}>This creates a permanent delivery record and cannot be undone.</Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[S.button, styles.modalCancelButton]}
+                onPress={() => setDeliveryModalVisible(false)}
+                disabled={delivering}
+              >
+                <Text style={[S.buttonText, { color: C.gray700 }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.button, { flex: 1 }]}
+                onPress={handleSubmitDelivery}
+                disabled={delivering}
+              >
+                {delivering ? (
+                  <ActivityIndicator color={C.white} />
+                ) : (
+                  <Text style={S.buttonText}>Confirm Delivery</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -696,5 +833,68 @@ const styles = StyleSheet.create({
   modalCancelButton: {
     backgroundColor: C.gray100,
     paddingHorizontal: 20,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.gray700,
+    marginBottom: 8,
+  },
+  conditionOption: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.gray200,
+    backgroundColor: C.white,
+  },
+  conditionOptionActive: {
+    borderColor: C.primary,
+    backgroundColor: C.primaryLight,
+  },
+  radioCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: C.gray200,
+    marginTop: 2,
+  },
+  radioCircleActive: {
+    borderColor: C.primary,
+    backgroundColor: C.primary,
+  },
+  conditionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: C.gray900,
+  },
+  conditionDesc: {
+    fontSize: 12,
+    color: C.gray500,
+    marginTop: 1,
+  },
+  gpsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.gray200,
+    backgroundColor: C.gray50,
+    marginBottom: 16,
+  },
+  gpsButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.primary,
+  },
+  helperText: {
+    fontSize: 11,
+    color: C.gray400,
+    marginBottom: 16,
   },
 });

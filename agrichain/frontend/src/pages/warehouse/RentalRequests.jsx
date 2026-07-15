@@ -89,6 +89,9 @@ export default function RentalRequests() {
                       <p className="text-sm text-gray-500 mt-0.5">
                         Requested {Number(r.requested_capacity_kg).toLocaleString()} kg in <span className="font-medium">{r.facility_name}</span>
                       </p>
+                      {r.requires_iot_monitoring && (
+                        <p className="text-xs font-medium text-blue-600 mt-1">Requires IoT temperature/humidity monitoring</p>
+                      )}
                       {r.notes && <p className="text-xs text-gray-400 mt-1">{r.notes}</p>}
                     </div>
                     <div className="flex gap-2 flex-shrink-0">

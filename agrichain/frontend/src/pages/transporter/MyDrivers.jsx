@@ -1,19 +1,125 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Users, Truck, CheckCircle, Circle, ChevronRight, X, Phone, Mail, MapPin, Home } from 'lucide-react'
+import { Plus, Users, Truck, CheckCircle, Circle, ChevronRight, X, Phone, Mail, MapPin, Home, Pencil, Ban, RotateCcw } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
+import LocationSelect from '../../components/ui/LocationSelect.jsx'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
 
 const BLANK = { first_name: '', last_name: '', phone_number: '', email: '', base_location: '', operating_districts: [] }
 
-// Simple driver detail panel — no vehicle management here.
-// Vehicles are registered in Vehicle Profile and assigned per-job in Pending Requests.
-function DriverDetailModal({ driver, onClose }) {
+// Driver detail panel — view, edit contact/location details, and suspend/reactivate.
+// No vehicle management here — vehicles are registered in Vehicle Profile and assigned
+// per-job in Pending Requests.
+function DriverDetailModal({ driver, onClose, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [suspending, setSuspending] = useState(false)
+
   if (!driver) return null
   const districts = Array.isArray(driver.operating_districts)
     ? driver.operating_districts.join(', ')
     : driver.operating_districts || '—'
+
+  const startEdit = () => {
+    setForm({
+      first_name: driver.name?.split(' ')[0] || '',
+      last_name: driver.name?.split(' ').slice(1).join(' ') || '',
+      phone_number: driver.phone_number || '',
+      email: driver.email || '',
+      base_location: driver.base_location || '',
+      operating_districts: Array.isArray(driver.operating_districts) ? driver.operating_districts : [],
+    })
+    setEditing(true)
+  }
+
+  const saveEdit = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await transportApi.updateDriver(driver.id, form)
+      toast.success('Driver details updated')
+      onSaved(res.data)
+      setEditing(false)
+    } catch (err) {
+      const data = err.response?.data
+      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not update driver')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleSuspend = async () => {
+    setSuspending(true)
+    try {
+      if (driver.is_active) {
+        await transportApi.suspendDriver(driver.id)
+        toast.success('Driver suspended')
+        onSaved({ ...driver, is_active: false })
+      } else {
+        const res = await transportApi.updateDriver(driver.id, { is_active: true })
+        toast.success('Driver reactivated')
+        onSaved(res.data)
+      }
+    } catch {
+      toast.error('Could not update driver status')
+    } finally {
+      setSuspending(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-gray-900">Edit Driver</h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+          </div>
+          <form onSubmit={saveEdit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">First name *</label>
+                <input className="input" required value={form.first_name}
+                  onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Last name *</label>
+                <input className="input" required value={form.last_name}
+                  onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Phone number *</label>
+              <input className="input" required value={form.phone_number}
+                onChange={e => setForm(f => ({ ...f, phone_number: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Email</label>
+              <input type="email" className="input" value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Base location</label>
+              <LocationSelect value={form.base_location} onChange={val => setForm(f => ({ ...f, base_location: val }))} placeholder="Select base district…" />
+            </div>
+            <div>
+              <label className="label">Operating districts</label>
+              <DistrictPicker value={form.operating_districts} onChange={val => setForm(f => ({ ...f, operating_districts: val }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setEditing(false)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -25,13 +131,25 @@ function DriverDetailModal({ driver, onClose }) {
             </div>
             <div>
               <h3 className="font-bold text-gray-900">{driver.name}</h3>
-              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full mt-1 ${
-                driver.has_active_trip
-                  ? 'bg-success-50 text-success-700'
-                  : 'bg-gray-100 text-gray-500'
-              }`}>
-                {driver.has_active_trip ? <><CheckCircle className="w-3 h-3" /> On active trip</> : <><Circle className="w-3 h-3" /> Idle</>}
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                {!driver.is_active && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-danger-50 text-danger-700">
+                    Suspended
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full ${
+                  driver.has_active_trip
+                    ? 'bg-success-50 text-success-700'
+                    : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {driver.has_active_trip ? <><CheckCircle className="w-3 h-3" /> On active trip</> : <><Circle className="w-3 h-3" /> Idle</>}
+                </span>
+                {!driver.has_logged_in && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-warning-50 text-warning-700">
+                    Not yet activated
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -66,6 +184,19 @@ function DriverDetailModal({ driver, onClose }) {
           )}
         </div>
 
+        <div className="flex gap-3">
+          <button onClick={startEdit} className="btn-secondary flex-1 flex items-center justify-center gap-2">
+            <Pencil className="w-4 h-4" /> Edit
+          </button>
+          <button onClick={toggleSuspend} disabled={suspending}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl text-sm font-semibold py-2.5 border transition-colors disabled:opacity-60 ${
+              driver.is_active
+                ? 'border-danger-300 text-danger-600 hover:bg-danger-50'
+                : 'border-success-300 text-success-700 hover:bg-success-50'
+            }`}>
+            {suspending ? '…' : driver.is_active ? <><Ban className="w-4 h-4" /> Suspend</> : <><RotateCcw className="w-4 h-4" /> Reactivate</>}
+          </button>
+        </div>
         <button onClick={onClose} className="btn-secondary w-full">Close</button>
       </div>
     </div>
@@ -95,6 +226,10 @@ export default function MyDrivers() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleDriverSaved = (updated) => {
+    setDrivers(prev => prev.map(d => d.id === updated.id ? { ...d, ...updated } : d))
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -131,7 +266,7 @@ export default function MyDrivers() {
   }
 
   const activeCount = drivers.filter(d => d.has_active_trip).length
-  const idleCount   = drivers.length - activeCount
+  const idleCount   = drivers.filter(d => d.is_active !== false && !d.has_active_trip).length
 
   return (
     <div className="space-y-6">
@@ -188,7 +323,7 @@ export default function MyDrivers() {
         <div className="space-y-3">
           {drivers.map(d => (
             <div key={d.id} onClick={() => setSelectedDriverId(d.id)}
-              className="card flex items-center gap-5 cursor-pointer hover:border-primary-200 hover:shadow-md transition-all">
+              className={`card flex items-center gap-5 cursor-pointer hover:border-primary-200 hover:shadow-md transition-all ${d.is_active === false ? 'opacity-60' : ''}`}>
               <div className="w-12 h-12 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
                 <Truck className="w-5 h-5 text-primary-600" />
               </div>
@@ -204,6 +339,16 @@ export default function MyDrivers() {
                 </div>
               </div>
               <div className="flex-shrink-0 flex items-center gap-2">
+                {d.is_active === false && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-danger-50 text-danger-700">
+                    Suspended
+                  </span>
+                )}
+                {!d.has_logged_in && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-warning-50 text-warning-700">
+                    Not yet activated
+                  </span>
+                )}
                 {d.has_active_trip ? (
                   <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-success-50 text-success-600">
                     <CheckCircle className="w-3.5 h-3.5" /> On active trip
@@ -247,8 +392,7 @@ export default function MyDrivers() {
           </div>
           <div>
             <label className="label">Base location</label>
-            <input className="input" placeholder="e.g. Musanze Town" value={form.base_location}
-              onChange={e => setForm(f => ({ ...f, base_location: e.target.value }))} />
+            <LocationSelect value={form.base_location} onChange={val => setForm(f => ({ ...f, base_location: val }))} placeholder="Select base district…" />
           </div>
           <div>
             <label className="label">Operating districts</label>
@@ -273,7 +417,7 @@ export default function MyDrivers() {
       </Modal>
 
       {selectedDriver && (
-        <DriverDetailModal driver={selectedDriver} onClose={() => setSelectedDriverId(null)} />
+        <DriverDetailModal driver={selectedDriver} onClose={() => setSelectedDriverId(null)} onSaved={handleDriverSaved} />
       )}
     </div>
   )

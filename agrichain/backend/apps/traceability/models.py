@@ -63,6 +63,14 @@ class Batch(models.Model):
     quality_at_distributor   = models.CharField(max_length=1, choices=QualityGrade.choices, blank=True)
     distributor_receipt_timestamp = models.DateTimeField(null=True, blank=True)
 
+    # Content mismatch — distinct from a quantity shortfall: the distributor reports that
+    # what physically arrived does not match the crop this batch record claims to be
+    # (e.g. the cooperative attached the wrong label to a batch before dispatch).
+    mismatch_reported     = models.BooleanField(default=False)
+    mismatch_reported_at  = models.DateTimeField(null=True, blank=True)
+    mismatch_description  = models.CharField(max_length=200, blank=True, help_text="What was actually received, e.g. 'Potatoes instead of Tomatoes'")
+    mismatch_notes        = models.TextField(blank=True)
+
     # Order (links to market agent)
     order = models.ForeignKey('distribution.Order', on_delete=models.SET_NULL,
                                null=True, blank=True, related_name='batch')
@@ -113,6 +121,31 @@ class Batch(models.Model):
         if float(self.dispatch_weight_kg) > 0:
             self.total_loss_pct = round((total_kg / float(self.dispatch_weight_kg)) * 100, 2)
         return self.total_loss_kg
+
+
+class BatchAllocation(models.Model):
+    """
+    Links a downstream market-agent Order to the specific cooperative Batch(es) that
+    supplied it, with how many kg of that batch went into the order.
+
+    Why this exists: a single Batch (e.g. 90,000kg of bananas dispatched by one
+    cooperative) becomes generic warehouse stock once the distributor receives it, then
+    gets sold off in many small Orders to different market agents. Without this table,
+    that fan-out is untraceable — there is nothing linking any individual order back to
+    the batch(es) it was drawn from. Allocation is computed automatically, FIFO by batch
+    receipt date (oldest stock first), when a distributor confirms an order — see
+    apps.distribution.views.OrderViewSet.confirm / _allocate_batches_fifo.
+    """
+    batch       = models.ForeignKey(Batch, on_delete=models.PROTECT, related_name='allocations')
+    order       = models.ForeignKey('distribution.Order', on_delete=models.CASCADE, related_name='batch_allocations')
+    quantity_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.quantity_kg}kg of Batch {str(self.batch.batch_id)[:8]} -> Order #{self.order_id}"
 
 
 class QRCodeScanEvent(models.Model):

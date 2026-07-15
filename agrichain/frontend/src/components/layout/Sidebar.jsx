@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
-import { LogOut, MessageSquare, HelpCircle } from 'lucide-react'
+import { LogOut, HelpCircle } from 'lucide-react'
 import ChainSightLogo from '../ui/ChainSightLogo.jsx'
 import FeedbackModal from '../ui/FeedbackModal.jsx'
 
@@ -62,15 +62,17 @@ export default function Sidebar({ navItems, title }) {
             </div>
           </div>
 
-          <button
-            onClick={() => setFeedbackOpen(true)}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            {isAdmin
-              ? <><MessageSquare className="w-4 h-4 flex-shrink-0" />Send Feedback</>
-              : <><HelpCircle className="w-4 h-4 flex-shrink-0" />Help &amp; Support</>
-            }
-          </button>
+          {/* Admin is the one who receives and resolves feedback (see the "Feedback &
+              Support" nav page) rather than someone who needs to ask for help, so this
+              submit/request button — meant for roles below admin — doesn't apply to them. */}
+          {!isAdmin && (
+            <button
+              onClick={() => setFeedbackOpen(true)}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-primary-300 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <HelpCircle className="w-4 h-4 flex-shrink-0" />Help &amp; Support
+            </button>
+          )}
 
           <button
             onClick={logout}
@@ -82,11 +84,8 @@ export default function Sidebar({ navItems, title }) {
         </div>
       </aside>
 
-      {feedbackOpen && (
-        <FeedbackModal
-          mode={isAdmin ? 'feedback' : 'help'}
-          onClose={() => setFeedbackOpen(false)}
-        />
+      {feedbackOpen && !isAdmin && (
+        <FeedbackModal mode="help" onClose={() => setFeedbackOpen(false)} />
       )}
     </>
   )

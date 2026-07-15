@@ -24,16 +24,26 @@ export const distributionApi = {
   confirmOrder: (id, data) => apiClient.post(`/distribution/orders/${id}/confirm/`, data),
   declineOrder: (id, data) => apiClient.post(`/distribution/orders/${id}/decline/`, data),
 
-  // Receipt confirmation
+  // Receipt confirmation (leg 1: cooperative -> distributor)
   confirmReceipt: (batchId, data) => apiClient.post(`/traceability/batches/${batchId}/confirm-receipt/`, data),
+
+  // Collection confirmations (leg 2: distributor -> market agent) — scoped server-side to
+  // this distributor's own orders; endpoint lives in market_agents since that's where the
+  // market agent submits it, but a distributor reads their own via the same URL.
+  getCollectionConfirmations: () => apiClient.get('/market-agents/collections/'),
 
   // Warehouse waste / loss reports
   getMyWasteReports: (params) => apiClient.get('/distribution/waste-reports/', { params }),
   submitWasteReport: (data) => apiClient.post('/distribution/waste-reports/', data),
+  submitWasteReportBatch: (data) => apiClient.post('/distribution/waste-reports/create-batch/', data),
+  getSoldSummary: (params) => apiClient.get('/distribution/waste-reports/sold-summary/', { params, _silent: true }),
 
   // My Fleet — drivers the distributor owns and registers directly (no Transport Company in between)
   registerOwnDriver: (data) => apiClient.post('/distribution/register-own-driver/', data),
+  updateTransporter: (id, data) => apiClient.patch(`/distribution/my-transporters/${id}/`, data),
+  deactivateTransporter: (id) => apiClient.delete(`/distribution/my-transporters/${id}/`),
   getMyProfile: (config) => apiClient.get('/distribution/distributors/my/', config),
+  updateMyProfile: (data) => apiClient.patch('/distribution/distributors/my/', data),
   getMyFleet: (config) => apiClient.get('/distribution/distributors/my-fleet/', config),
   getFleetMonitoring: (config) => apiClient.get('/distribution/distributors/fleet-monitoring/', config),
 

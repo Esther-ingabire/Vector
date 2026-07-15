@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Download, Globe, MapPin, Leaf, Activity, Loader } from 'lucide-react'
+import { FileText, Download, Globe, MapPin, Leaf, Activity, Loader, BarChart3 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { analyticsApi, triggerDownload } from '../../api/analytics.js'
 
@@ -8,105 +8,73 @@ const LIVE_EXPORTS = [
     type: 'complete',
     name: 'Complete Activity Report',
     desc: 'Every batch nationwide — cooperative, district, transport, distributor, and market agent in a single end-to-end report.',
-    filename: 'national_complete_report.csv',
+    filename: 'national_complete_report',
     icon: FileText,
     color: 'text-violet-600',
     bg: 'bg-violet-50',
+    // A full row-per-batch dump — a chart can't summarize it meaningfully, so CSV only.
+    chartable: false,
   },
   {
     type: 'national',
     name: 'National Supply Chain Report',
     desc: 'District × crop aggregation — volumes, losses, and batch counts across all of Rwanda.',
-    filename: 'national_supply_chain_report.csv',
+    filename: 'national_supply_chain_report',
     icon: Globe,
     color: 'text-primary-600',
     bg: 'bg-primary-50',
+    // A district × crop matrix — still a table, not a single ranking a bar chart can show.
+    chartable: false,
   },
   {
     type: 'districts',
     name: 'District Performance Report',
     desc: 'District-level ranking by average loss rate, total volume, and risk classification.',
-    filename: 'national_districts_report.csv',
+    filename: 'national_districts_report',
     icon: MapPin,
     color: 'text-indigo-600',
     bg: 'bg-indigo-50',
+    chartable: true,
   },
   {
     type: 'crops',
     name: 'Crop Loss Analysis Report',
     desc: 'National average loss per crop type with volume and batch count statistics.',
-    filename: 'national_crops_report.csv',
+    filename: 'national_crops_report',
     icon: Leaf,
     color: 'text-success-600',
     bg: 'bg-success-50',
+    chartable: true,
   },
   {
     type: 'transport',
     name: 'National Transport Performance',
     desc: 'Summary of all transport jobs — routes, transit times, on-time rates, and delay analysis.',
-    filename: 'national_transport_report.csv',
+    filename: 'national_transport_report',
     icon: Activity,
     color: 'text-orange-600',
     bg: 'bg-orange-50',
+    chartable: true,
   },
 ]
-
-const ARCHIVED_SECTIONS = [
-  {
-    title: 'National KPI Summary',
-    reports: [
-      { name: 'National Supply Chain KPIs - April 2026', date: 'May 1, 2026',  size: '2.4 MB', type: 'PDF'   },
-      { name: 'National Supply Chain KPIs - March 2026', date: 'Apr 1, 2026',  size: '2.3 MB', type: 'PDF'   },
-      { name: 'Q1 2026 Quarterly Summary',               date: 'Apr 1, 2026',  size: '5.1 MB', type: 'Excel' },
-    ],
-  },
-  {
-    title: 'District Loss Reports',
-    reports: [
-      { name: 'District-by-District Loss Analysis - April', date: 'May 1, 2026',  size: '3.8 MB', type: 'PDF'   },
-      { name: 'Musanze District Deep Dive',                  date: 'Apr 28, 2026', size: '1.9 MB', type: 'PDF'   },
-      { name: 'Kigali District Performance Report',          date: 'Apr 28, 2026', size: '2.2 MB', type: 'Excel' },
-    ],
-  },
-  {
-    title: 'Crop Loss Reports',
-    reports: [
-      { name: 'Coffee Supply Chain Analysis',  date: 'Apr 30, 2026', size: '2.7 MB', type: 'PDF'   },
-      { name: 'Maize Loss Patterns & Trends',  date: 'Apr 29, 2026', size: '2.1 MB', type: 'PDF'   },
-      { name: 'Multi-Crop Comparison Report',  date: 'Apr 25, 2026', size: '4.5 MB', type: 'Excel' },
-    ],
-  },
-  {
-    title: 'Cold Chain Compliance',
-    reports: [
-      { name: 'National Cold Chain Compliance - April', date: 'May 1, 2026', size: '1.6 MB', type: 'PDF'   },
-      { name: 'IoT Sensor Violation Log',               date: 'May 1, 2026', size: '3.2 MB', type: 'Excel' },
-      { name: 'Facility Compliance Scorecard Q1',       date: 'Apr 1, 2026', size: '2.0 MB', type: 'PDF'   },
-    ],
-  },
-]
-
-const TYPE_STYLE = {
-  PDF:   'bg-red-100 text-red-700',
-  Excel: 'bg-green-100 text-green-700',
-}
 
 export default function NationalReports() {
   const [downloading, setDownloading] = useState(new Set())
 
-  const handleLiveDownload = async (report) => {
-    if (downloading.has(report.type)) return
-    setDownloading(prev => new Set([...prev, report.type]))
+  const handleLiveDownload = async (report, format) => {
+    const key = `${report.type}:${format}`
+    if (downloading.has(key)) return
+    setDownloading(prev => new Set([...prev, key]))
     try {
-      const res = await analyticsApi.exportReport({ report_type: report.type })
-      triggerDownload(res, report.filename)
+      const res = await analyticsApi.exportReport({ report_type: report.type, file_format: format })
+      triggerDownload(res, `${report.filename}.${format}`)
       toast.success(`"${report.name}" downloaded`)
     } catch {
       toast.error('Could not generate report. Try again.')
     } finally {
       setDownloading(prev => {
         const next = new Set(prev)
-        next.delete(report.type)
+        next.delete(key)
         return next
       })
     }
@@ -127,7 +95,6 @@ export default function NationalReports() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {LIVE_EXPORTS.map(report => {
             const Icon = report.icon
-            const busy = downloading.has(report.type)
             return (
               <div
                 key={report.type}
@@ -143,63 +110,40 @@ export default function NationalReports() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">CSV · Live</span>
-                  <button
-                    onClick={() => handleLiveDownload(report)}
-                    disabled={busy}
-                    className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
-                  >
-                    {busy
-                      ? <Loader className="w-4 h-4 animate-spin" />
-                      : <Download className="w-4 h-4" />
-                    }
-                    {busy ? 'Generating…' : 'Download CSV'}
-                  </button>
+                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                    {report.chartable ? 'CSV or Chart PDF · Live' : 'CSV · Live'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {report.chartable && (
+                      <button
+                        onClick={() => handleLiveDownload(report, 'pdf')}
+                        disabled={downloading.has(`${report.type}:pdf`)}
+                        title="Download as a PDF with a summary chart"
+                        className="btn-secondary flex items-center gap-2 text-sm py-2 px-3 disabled:opacity-60"
+                      >
+                        {downloading.has(`${report.type}:pdf`)
+                          ? <Loader className="w-4 h-4 animate-spin" />
+                          : <BarChart3 className="w-4 h-4" />
+                        }
+                        Chart PDF
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleLiveDownload(report, 'csv')}
+                      disabled={downloading.has(`${report.type}:csv`)}
+                      className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
+                    >
+                      {downloading.has(`${report.type}:csv`)
+                        ? <Loader className="w-4 h-4 animate-spin" />
+                        : <Download className="w-4 h-4" />
+                      }
+                      {downloading.has(`${report.type}:csv`) ? 'Generating…' : 'CSV'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )
           })}
-        </div>
-      </div>
-
-      {/* Pre-generated / archived reports */}
-      <div className="card">
-        <h2 className="font-semibold text-gray-900 mb-1">Pre-Generated Reports</h2>
-        <p className="text-xs text-gray-400 mb-5">Archived PDF and Excel reports from previous reporting periods</p>
-
-        <div className="space-y-8">
-          {ARCHIVED_SECTIONS.map(section => (
-            <div key={section.title}>
-              <div className="border-l-4 border-l-primary-600 pl-3 mb-3">
-                <h3 className="font-semibold text-gray-800">{section.title}</h3>
-              </div>
-              <div className="space-y-2">
-                {section.reports.map((r, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-4 p-3.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
-                      <FileText className="w-4 h-4 text-gray-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{r.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{r.date} · {r.size}</p>
-                    </div>
-                    <span className={`text-xs font-semibold px-2.5 py-0.5 rounded shrink-0 ${TYPE_STYLE[r.type]}`}>
-                      {r.type}
-                    </span>
-                    <button
-                      onClick={() => toast.success(`Preparing "${r.name}"…`)}
-                      className="btn-primary flex items-center gap-2 text-sm py-2 px-4 shrink-0"
-                    >
-                      <Download className="w-4 h-4" /> Download
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

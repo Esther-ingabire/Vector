@@ -27,4 +27,5 @@ urlpatterns = [
     path("mfa/request-otp/", views.mfa_request_enable_otp, name="mfa-request-otp"),
     path("mfa/enable/", views.mfa_enable, name="mfa-enable"),
     path("mfa/disable/", views.mfa_disable, name="mfa-disable"),
+    path("data-integration-status/", views.data_integration_status, name="data-integration-status"),
 ]

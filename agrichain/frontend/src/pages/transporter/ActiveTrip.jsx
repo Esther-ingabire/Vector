@@ -1,9 +1,18 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Thermometer, CheckCircle, Route as RouteIcon, AlertTriangle, Gauge } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Thermometer, CheckCircle, Route as RouteIcon, AlertTriangle, Gauge, Camera, MapPin, X, User } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import TripTrackingMap from '../../components/map/TripTrackingMap.jsx'
 import { transportApi } from '../../api/transport.js'
 import toast from 'react-hot-toast'
+
+const CONDITION_OPTIONS = [
+  { value: 'GOOD',             label: 'Good',              desc: 'No visible damage' },
+  { value: 'MINOR_DAMAGE',     label: 'Minor damage',      desc: 'Some bruising or spillage' },
+  { value: 'MAJOR_DAMAGE',     label: 'Major damage',      desc: 'Significant spoilage or loss' },
+  { value: 'PARTIAL_QUANTITY', label: 'Partial delivery',  desc: 'Full cargo not delivered' },
+]
+
+const CONFIRM_BLANK = { recipient_name: '', condition_on_arrival: '', notes: '' }
 
 // Rwanda city coordinates lookup — used only when the backend hasn't set real GPS coords yet
 const CITY_COORDS = {
@@ -64,6 +73,40 @@ export default function ActiveTrip() {
   const [confirming, setConfirming] = useState(false)
   const [routeInfo, setRouteInfo] = useState(null)
 
+  // Proof-of-delivery form state
+  const [confirmForm, setConfirmForm] = useState(CONFIRM_BLANK)
+  const [photo, setPhoto] = useState(null)          // { file, url }
+  const [gpsCoords, setGpsCoords] = useState(null)     // { lat, lng }
+  // 'unsupported' | 'prompt' (our own card, asking before the browser does) | 'locating' | 'ok' | 'denied' | 'skipped'
+  const [gpsStatus, setGpsStatus] = useState('unsupported')
+  const photoInputRef = useRef(null)
+
+  const openConfirm = (trip) => {
+    setConfirmTarget(trip)
+    setConfirmForm(CONFIRM_BLANK)
+    setPhoto(null)
+    setGpsCoords(null)
+    // Don't call the browser's geolocation API on open — that fires the native permission
+    // popup with zero context. Show our own explanatory card first; only the driver tapping
+    // "Share Location" in it triggers the real browser prompt.
+    setGpsStatus(navigator.geolocation ? 'prompt' : 'unsupported')
+  }
+
+  const requestLocation = () => {
+    setGpsStatus('locating')
+    navigator.geolocation.getCurrentPosition(
+      pos => { setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsStatus('ok') },
+      () => setGpsStatus('denied'),
+      { timeout: 8000 }
+    )
+  }
+
+  const onPhotoChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPhoto({ file, url: URL.createObjectURL(file) })
+  }
+
   const load = useCallback(() => {
     transportApi.getMyActiveTrip({ _silent: true })
       .then(res => {
@@ -123,19 +166,34 @@ export default function ActiveTrip() {
     stop_sequence: t.request.stop_sequence,
   }))
 
-  const handleConfirmDelivery = async () => {
+  const handleConfirmDelivery = async (e) => {
+    e.preventDefault()
     if (!confirmTarget) return
+    if (!confirmForm.recipient_name.trim()) { toast.error('Enter who received the delivery.'); return }
+    if (!confirmForm.condition_on_arrival) { toast.error('Select the condition on arrival.'); return }
+
     setConfirming(true)
     try {
-      await transportApi.confirmDelivery(confirmTarget.id, { notes: '' })
+      const form = new FormData()
+      form.append('recipient_name', confirmForm.recipient_name.trim())
+      form.append('condition_on_arrival', confirmForm.condition_on_arrival)
+      form.append('notes', confirmForm.notes)
+      if (gpsCoords) {
+        form.append('delivery_gps_lat', gpsCoords.lat)
+        form.append('delivery_gps_lng', gpsCoords.lng)
+      }
+      if (photo) form.append('delivery_photo', photo.file)
+
+      await transportApi.confirmDelivery(confirmTarget.id, form)
       toast.success(isMultiStop ? `Stop delivered — ${confirmTarget.request.destination}` : 'Delivery confirmed!')
-    } catch {
-      toast.success('Delivery confirmed!')
-    } finally {
-      setConfirming(false)
       setConfirmTarget(null)
       setLoading(true)
       load()
+    } catch (err) {
+      const data = err.response?.data
+      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not confirm delivery')
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -216,7 +274,7 @@ export default function ActiveTrip() {
                 )}
 
                 <button
-                  onClick={() => setConfirmTarget(t)}
+                  onClick={() => openConfirm(t)}
                   className="mt-auto w-full py-3 rounded-xl bg-primary-500/80 hover:bg-primary-500 border border-primary-400/40 backdrop-blur-sm shadow-md shadow-primary-900/15 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2">
                   <CheckCircle className="w-4 h-4" /> Mark as Delivered
                 </button>
@@ -249,22 +307,113 @@ export default function ActiveTrip() {
         </div>
       </div>
 
-      {/* Confirm delivery modal */}
+      {/* Confirm delivery modal — real proof of delivery, not a bare tap */}
       <Modal isOpen={!!confirmTarget} onClose={() => setConfirmTarget(null)} title="Confirm Delivery">
         {confirmTarget && (
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Confirm delivery of <strong>{confirmTarget.request.cargo_description}</strong> to <strong>{confirmTarget.request.destination}</strong>?
-            </p>
-            <p className="text-sm text-gray-500">This action cannot be undone. A delivery receipt will be generated automatically.</p>
+          <form onSubmit={handleConfirmDelivery} className="space-y-4">
+            <div className="bg-gray-50 rounded-xl p-3 text-sm">
+              <p className="font-semibold text-gray-900">{confirmTarget.request.cargo_description}</p>
+              <p className="text-gray-500">to {confirmTarget.request.destination}</p>
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> Received by *</label>
+              <input className="input" required placeholder="Name of person who accepted the delivery"
+                value={confirmForm.recipient_name}
+                onChange={e => setConfirmForm(f => ({ ...f, recipient_name: e.target.value }))} />
+            </div>
+
+            <div>
+              <label className="label">Condition on arrival *</label>
+              <div className="space-y-2">
+                {CONDITION_OPTIONS.map(opt => (
+                  <label key={opt.value}
+                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      confirmForm.condition_on_arrival === opt.value
+                        ? 'border-primary-400 bg-primary-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}>
+                    <input type="radio" name="condition_on_arrival" value={opt.value} required
+                      checked={confirmForm.condition_on_arrival === opt.value}
+                      onChange={e => setConfirmForm(f => ({ ...f, condition_on_arrival: e.target.value }))}
+                      className="mt-0.5 flex-shrink-0 accent-primary-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{opt.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-1.5"><Camera className="w-3.5 h-3.5" /> Delivery photo (optional)</label>
+              {photo ? (
+                <div className="relative w-full h-36 rounded-xl overflow-hidden border border-gray-200">
+                  <img src={photo.url} alt="Delivery proof" className="w-full h-full object-cover" />
+                  <button type="button" onClick={() => { setPhoto(null); if (photoInputRef.current) photoInputRef.current.value = '' }}
+                    className="absolute top-2 right-2 bg-white/90 rounded-full p-1 text-gray-600 hover:text-danger-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => photoInputRef.current?.click()}
+                  className="btn-secondary w-full flex items-center justify-center gap-2 text-sm">
+                  <Camera className="w-4 h-4" /> Take or upload a photo
+                </button>
+              )}
+              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhotoChange} />
+            </div>
+
+            {gpsStatus === 'prompt' ? (
+              <div className="flex items-start gap-3 rounded-xl border border-primary-200 bg-primary-50 p-3">
+                <MapPin className="w-4 h-4 text-primary-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">Share your delivery location?</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Attaching GPS to this delivery record helps confirm exactly where it was handed over — useful if there's ever a dispute.
+                  </p>
+                  <div className="flex gap-2 mt-2.5">
+                    <button type="button" onClick={requestLocation}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors">
+                      Share Location
+                    </button>
+                    <button type="button" onClick={() => setGpsStatus('skipped')}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors">
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs">
+                <MapPin className={`w-3.5 h-3.5 ${gpsStatus === 'ok' ? 'text-success-600' : 'text-gray-400'}`} />
+                {gpsStatus === 'locating' && <span className="text-gray-400">Capturing your location…</span>}
+                {gpsStatus === 'ok' && <span className="text-success-600">Delivery location captured</span>}
+                {gpsStatus === 'denied' && <span className="text-gray-400">Location unavailable — confirming without GPS</span>}
+                {gpsStatus === 'skipped' && <span className="text-gray-400">Skipped — confirming without GPS</span>}
+                {gpsStatus === 'unsupported' && <span className="text-gray-400">Location not supported on this device</span>}
+              </div>
+            )}
+
+            <div>
+              <label className="label">Notes (optional)</label>
+              <textarea className="input" rows={2} value={confirmForm.notes}
+                onChange={e => setConfirmForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Anything else worth recording about this delivery…" />
+            </div>
+
+            <p className="text-xs text-gray-400">This creates a permanent delivery record and cannot be undone.</p>
+
             <div className="flex gap-3">
-              <button onClick={() => setConfirmTarget(null)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={handleConfirmDelivery} disabled={confirming}
-                className="btn-primary flex-1 disabled:opacity-60">
+              <button type="button" onClick={() => setConfirmTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={confirming}
+                className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {confirming && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {confirming ? 'Confirming…' : 'Confirm Delivery'}
               </button>
             </div>
-          </div>
+          </form>
         )}
       </Modal>
     </div>

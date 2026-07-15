@@ -1,9 +1,8 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, X, Bell, MapPin, Package, Truck, Award, ArrowRight, Navigation } from 'lucide-react'
+import { Plus, Search, Star, TrendingUp, RefreshCw, ChevronRight, CheckCircle, MapPin, Package, Truck, Award, ArrowRight, Navigation } from 'lucide-react'
 import DataTable from '../../components/ui/DataTable.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import Modal from '../../components/ui/Modal.jsx'
-import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
 import { distributionApi } from '../../api/distribution.js'
 import { cooperativesApi } from '../../api/cooperatives.js'
 import toast from 'react-hot-toast'
@@ -17,8 +16,6 @@ const STATUS_LABEL = {
   COMPLETED:   'Completed',
   CANCELLED:   'Cancelled',
 }
-
-const NOTICE_BLANK = { title: '', crop_name: '', quantity_available_kg: '', price_per_kg: '', available_from: '', available_until: '', pickup_location: '', notes: '' }
 
 // Each crop has a POOL of distinct images.
 // getCropImage uses the cooperative's own ID to pick from the pool,
@@ -112,7 +109,7 @@ function CoopCard({ coop, onRequest, isFrequent }) {
   const wrapperCls = isFrequent
     ? 'rounded-2xl border-2 border-warning-200 bg-warning-50/40 overflow-hidden hover:shadow-md transition-all'
     : 'rounded-2xl border-2 border-gray-200 bg-white overflow-hidden hover:shadow-md hover:border-primary-300 transition-all'
-  const stockLabel = typeof coop.stock_tons === 'number' ? coop.stock_tons.toFixed(1) : coop.stock_tons
+  const stockLabel = typeof coop.stock_kg === 'number' ? coop.stock_kg.toLocaleString() : coop.stock_kg
   return (
     <div className={wrapperCls}>
       <div className="w-full h-32 overflow-hidden bg-gray-100">
@@ -132,8 +129,8 @@ function CoopCard({ coop, onRequest, isFrequent }) {
           <p className="flex items-center gap-1"><MapPin className="w-3 h-3" />{coop.district}</p>
           <p>{coop.crops_specialised?.slice(0, 3).join(', ')}</p>
         </div>
-        {coop.stock_tons && (
-          <p className="text-sm font-medium text-success-600">Stock: {stockLabel} tons</p>
+        {coop.stock_kg && (
+          <p className="text-sm font-medium text-success-600">Stock: {stockLabel} kg</p>
         )}
         <button
           onClick={() => onRequest(coop)}
@@ -150,10 +147,8 @@ export default function OrderManagement() {
   const initialTab = location.search.includes('coop=') ? 'cooperatives' : 'requests'
   const [tab, setTab] = useState(initialTab)
   const [orders, setOrders] = useState([])
-  const [notices, setNotices] = useState([])
   const [allCoops, setAllCoops] = useState([])
   const [loadingOrders, setLoadingOrders] = useState(true)
-  const [loadingNotices, setLoadingNotices] = useState(true)
   const [loadingCoops, setLoadingCoops] = useState(false)
   const [search, setSearch] = useState('')
   const [coopSearch, setCoopSearch] = useState('')
@@ -161,12 +156,10 @@ export default function OrderManagement() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [showNew, setShowNew] = useState(false)
   const [coopStep, setCoopStep] = useState('profile') // 'profile' | 'order'
-  const [showNoticeForm, setShowNoticeForm] = useState(false)
   const [selectedCoop, setSelectedCoop] = useState(null)
-  const [noticeForm, setNoticeForm] = useState(NOTICE_BLANK)
-  const [form, setForm] = useState({ cooperative: '', crop_name: '', quantity_kg: '', quality_grade_required: 'A', required_delivery_date: '', additional_notes: '' })
+  const [form, setForm] = useState({ cooperative: '', crop_name: '', quantity_kg: '', quality_grade_required: 'A', required_delivery_date: '', additional_notes: '', delivery_method: 'TRANSPORTER_DELIVERY' })
   const [saving, setSaving] = useState(false)
-  const [partnerIds, setPartnerIds] = useState(new Set([1, 2]))
+  const [partnerIds, setPartnerIds] = useState(new Set())
   const [selectedOrder, setSelectedOrder] = useState(null)
 
   const MOCK_ORDERS = [
@@ -175,18 +168,12 @@ export default function OrderManagement() {
     { id: 103, cooperative_name: 'Kigali Tea Collective', crop_name: 'Tea', quantity_kg: 1500, quality_grade_required: 'A', required_delivery_date: '2026-07-01', status: 'IN_TRANSIT', additional_notes: '' },
   ]
 
-  const MOCK_NOTICES = [
-    { id: 1, title: 'Tomatoes Available – Batch 2026-06', crop_name: 'Tomatoes', quantity_available_kg: 800, price_per_kg: 850, available_from: '2026-06-12', available_until: '2026-06-20', pickup_location: 'Kigali Warehouse A', orders_count: 3, is_active: true },
-    { id: 2, title: 'Grade A Avocados Ready', crop_name: 'Avocados', quantity_available_kg: 400, price_per_kg: 1200, available_from: '2026-06-10', available_until: '2026-06-18', pickup_location: 'Musanze Collection Point', orders_count: 1, is_active: true },
-    { id: 3, title: 'Maize Batch – May Harvest', crop_name: 'Maize', quantity_available_kg: 2000, price_per_kg: 400, available_from: '2026-05-20', available_until: '2026-06-05', pickup_location: 'Kigali Warehouse B', orders_count: 5, is_active: false },
-  ]
-
   const MOCK_ALL_COOPS = [
-    { id: 10, name: 'Musanze Coffee Coop', district: 'Musanze', crops_specialised: ['Coffee', 'Maize'], stock_tons: 24.5, composite_score: 0.88, total_batches_dispatched: 14 },
-    { id: 11, name: 'Nyanza Potato Growers', district: 'Nyanza', crops_specialised: ['Potatoes', 'Beans'], stock_tons: 18.0, composite_score: 0.81, total_batches_dispatched: 9 },
-    { id: 12, name: 'Kigali Tea Collective', district: 'Kigali', crops_specialised: ['Tea', 'Maize'], stock_tons: 30.0, composite_score: 0.75, total_batches_dispatched: 6 },
-    { id: 13, name: 'Huye Highlands Coop', district: 'Huye', crops_specialised: ['Avocados', 'Beans'], stock_tons: 12.0, composite_score: 0.70, total_batches_dispatched: 4 },
-    { id: 14, name: 'Rwamagana Grain Coop', district: 'Rwamagana', crops_specialised: ['Maize', 'Rice'], stock_tons: 40.0, composite_score: 0.65, total_batches_dispatched: 3 },
+    { id: 10, name: 'Musanze Coffee Coop', district: 'Musanze', crops_specialised: ['Coffee', 'Maize'], stock_kg: 24500, composite_score: 0.88, total_batches_dispatched: 14 },
+    { id: 11, name: 'Nyanza Potato Growers', district: 'Nyanza', crops_specialised: ['Potatoes', 'Beans'], stock_kg: 18000, composite_score: 0.81, total_batches_dispatched: 9 },
+    { id: 12, name: 'Kigali Tea Collective', district: 'Kigali', crops_specialised: ['Tea', 'Maize'], stock_kg: 30000, composite_score: 0.75, total_batches_dispatched: 6 },
+    { id: 13, name: 'Huye Highlands Coop', district: 'Huye', crops_specialised: ['Avocados', 'Beans'], stock_kg: 12000, composite_score: 0.70, total_batches_dispatched: 4 },
+    { id: 14, name: 'Rwamagana Grain Coop', district: 'Rwamagana', crops_specialised: ['Maize', 'Rice'], stock_kg: 40000, composite_score: 0.65, total_batches_dispatched: 3 },
   ]
 
   const loadOrders = useCallback(async () => {
@@ -196,22 +183,12 @@ export default function OrderManagement() {
       const list = res.data?.results ?? res.data ?? []
       const final = list.length ? list : MOCK_ORDERS
       setOrders(final)
-      setPartnerIds(new Set([...final.map(o => o.cooperative), 10, 11]))
+      setPartnerIds(list.length ? new Set(final.map(o => o.cooperative)) : new Set([10, 11]))
     } catch {
       setOrders(MOCK_ORDERS)
       setPartnerIds(new Set([10, 11]))
     }
     finally { setLoadingOrders(false) }
-  }, [])
-
-  const loadNotices = useCallback(async () => {
-    setLoadingNotices(true)
-    try {
-      const res = await distributionApi.getMyNotices({})
-      const list = res.data?.results ?? res.data ?? []
-      setNotices(list.length ? list : MOCK_NOTICES)
-    } catch { setNotices(MOCK_NOTICES) }
-    finally { setLoadingNotices(false) }
   }, [])
 
   const loadCoops = useCallback(async (q = '', nearby = false) => {
@@ -227,7 +204,7 @@ export default function OrderManagement() {
     finally { setLoadingCoops(false) }
   }, [])
 
-  useEffect(() => { loadOrders(); loadNotices() }, [loadOrders, loadNotices])
+  useEffect(() => { loadOrders() }, [loadOrders])
   useEffect(() => { if (tab === 'cooperatives') loadCoops(coopSearch, nearbyOnly) }, [tab, nearbyOnly])
 
   const openRequest = (coop) => {
@@ -240,12 +217,12 @@ export default function OrderManagement() {
     if (!MOCK_COOP_IDS.has(coop.id)) {
       cooperativesApi.getCooperativeDetail(coop.id).then(res => {
         const full = res.data
-        const stockTons = (full.stock_records || []).reduce((sum, s) => sum + Number(s.quantity_kg || 0), 0) / 1000
+        const stockKg = (full.stock_records || []).reduce((sum, s) => sum + Number(s.quantity_kg || 0), 0)
         // The detail endpoint's crops_specialised is a list of Crop objects ({id, name, ...}),
         // but the directory endpoint (used for the initial card data) returns plain strings —
         // normalize to strings so the profile modal doesn't try to render an object as a child.
         const cropsNames = (full.crops_specialised || []).map(c => typeof c === 'string' ? c : c.name)
-        setSelectedCoop(prev => (prev && prev.id === coop.id ? { ...prev, ...full, crops_specialised: cropsNames, stock_tons: stockTons } : prev))
+        setSelectedCoop(prev => (prev && prev.id === coop.id ? { ...prev, ...full, crops_specialised: cropsNames, stock_kg: stockKg } : prev))
       }).catch(() => {})
     }
   }
@@ -273,6 +250,7 @@ export default function OrderManagement() {
         quality_grade_required: form.quality_grade_required,
         required_delivery_date: form.required_delivery_date,
         additional_notes: form.additional_notes,
+        delivery_method: form.delivery_method,
         status: 'PENDING',
         created_at: new Date().toISOString(),
       }, ...prev])
@@ -281,10 +259,12 @@ export default function OrderManagement() {
       try {
         const payload = {
           cooperative: coopId,
+          crop_name: form.crop_name,
           quantity_kg: Number(form.quantity_kg),
           quality_grade_required: form.quality_grade_required,
           required_delivery_date: form.required_delivery_date,
-          additional_notes: form.crop_name ? `Crop: ${form.crop_name}. ${form.additional_notes}` : form.additional_notes,
+          additional_notes: form.additional_notes,
+          delivery_method: form.delivery_method,
         }
         const res = await distributionApi.createProduceRequest(payload)
         setOrders(prev => [res.data, ...prev])
@@ -303,35 +283,6 @@ export default function OrderManagement() {
     setSelectedCoop(null)
   }
 
-  const submitNotice = async (e) => {
-    e.preventDefault()
-    setSaving(true)
-    const newNotice = {
-      id: Date.now(),
-      ...noticeForm,
-      quantity_available_kg: Number(noticeForm.quantity_available_kg),
-      price_per_kg: Number(noticeForm.price_per_kg),
-      orders_count: 0,
-      is_active: true,
-    }
-    try {
-      const res = await distributionApi.createNotice(newNotice)
-      setNotices(prev => [res.data, ...prev])
-    } catch {
-      setNotices(prev => [newNotice, ...prev])
-    }
-    toast.success('Collection notice published')
-    setSaving(false)
-    setShowNoticeForm(false)
-    setNoticeForm(NOTICE_BLANK)
-  }
-
-  const deactivateNotice = async (id) => {
-    try { await distributionApi.deactivateNotice(id) } catch {}
-    setNotices(prev => prev.map(n => n.id === id ? { ...n, is_active: false } : n))
-    toast.success('Notice deactivated')
-  }
-
   const filtered = orders
     .filter(o => statusFilter === 'all' || o.status === statusFilter)
     .filter(o => {
@@ -348,8 +299,13 @@ export default function OrderManagement() {
       </div>
     )},
     { key: 'crop_name', label: 'Crop', render: v => <span className="text-sm text-gray-700">{v || '—'}</span> },
-    { key: 'quantity_kg', label: 'Quantity', render: v => v ? <span className="font-medium">{(Number(v)/1000).toFixed(1)} tons</span> : '—' },
+    { key: 'quantity_kg', label: 'Quantity', render: v => v ? <span className="font-medium">{Number(v).toLocaleString()} kg</span> : '—' },
     { key: 'required_delivery_date', label: 'Delivery Date', render: v => v ? new Date(v).toLocaleDateString('en-RW', { year: 'numeric', month: 'short', day: 'numeric' }) : '—' },
+    { key: 'delivery_method', label: 'Delivery', render: v => (
+      <span className="text-xs text-gray-500 flex items-center gap-1">
+        {v === 'SELF_COLLECTION' ? <><Truck className="w-3 h-3" />Self-collect</> : <><Package className="w-3 h-3" />Coop arranges</>}
+      </span>
+    )},
     { key: 'status', label: 'Status', render: (v, row) => (
       <div className="space-y-1">
         <StatusBadge status={v} />
@@ -391,17 +347,12 @@ export default function OrderManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Orders & Cooperatives</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage your produce requests, find cooperatives, and publish collection notices.</p>
+          <p className="text-sm text-gray-500 mt-0.5">Manage your produce requests and find cooperatives to order from.</p>
         </div>
         <div className="flex gap-2">
           {tab === 'requests' && (
             <button onClick={() => { setSelectedCoop(null); setCoopStep('order'); setShowNew(true) }} className="btn-primary flex items-center gap-2">
               <Plus className="w-4 h-4" /> New Request
-            </button>
-          )}
-          {tab === 'notices' && (
-            <button onClick={() => setShowNoticeForm(true)} className="btn-primary flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Create Notice
             </button>
           )}
         </div>
@@ -412,7 +363,6 @@ export default function OrderManagement() {
         {[
           { id: 'requests', label: 'My Produce Requests' },
           { id: 'cooperatives', label: 'Find Cooperatives' },
-          { id: 'notices', label: 'Collection Notices' },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.id ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
@@ -559,69 +509,6 @@ export default function OrderManagement() {
         </div>
       )}
 
-      {/* ── Collection Notices ── */}
-      {tab === 'notices' && (
-        <div className="space-y-4">
-          {loadingNotices ? (
-            <div className="card py-10 text-center text-gray-400">Loading…</div>
-          ) : notices.length === 0 ? (
-            <div className="card py-16 text-center text-gray-400">
-              <Bell className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">No notices yet.</p>
-              <p className="text-sm mt-1">Create one so market agents can see and order your available produce.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {notices.map(notice => (
-                <div key={notice.id} className={`card ${!notice.is_active ? 'opacity-60 bg-gray-50' : ''}`}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-3 flex-wrap">
-                        <h3 className="font-semibold text-gray-900">{notice.title}</h3>
-                        {notice.is_active
-                          ? <span className="badge badge-green">Active</span>
-                          : <span className="badge badge-gray">Closed</span>}
-                        {(notice.orders_count || 0) > 0 && (
-                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-50 text-warning-700 border border-warning-200">
-                            {notice.orders_count} order{notice.orders_count > 1 ? 's' : ''} received
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <p className="text-xs text-gray-400 mb-0.5">Crop</p>
-                          <p className="font-semibold text-gray-900">{notice.crop_name}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-0.5">Qty Available</p>
-                          <p className="font-semibold text-gray-900">{Number(notice.available_quantity_kg ?? notice.quantity_available_kg ?? 0).toLocaleString()} kg</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-0.5">Price / kg</p>
-                          <p className="font-semibold text-success-700">RWF {Number(notice.price_per_kg || 0).toLocaleString()}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-0.5">Pickup Location</p>
-                          <p className="font-medium text-gray-700">{notice.pickup_location || '—'}</p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-3">
-                        Available: {notice.available_from} &rarr; {notice.available_until}
-                      </p>
-                    </div>
-                    {notice.is_active && (
-                      <button onClick={() => deactivateNotice(notice.id)} className="btn-secondary text-xs flex items-center gap-1 flex-shrink-0">
-                        <X className="w-3 h-3" /> Close Notice
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Cooperative profile → order modal */}
       <Modal isOpen={showNew} onClose={closeCoopModal}
         title={coopStep === 'profile' ? 'Cooperative Profile' : selectedCoop ? `Order from ${selectedCoop.name}` : 'New Produce Request'}>
@@ -713,7 +600,7 @@ export default function OrderManagement() {
                 </div>
                 <div className="bg-gray-50 rounded-xl p-3 text-center">
                   <p className="text-xl font-bold text-success-600">
-                    {typeof selectedCoop.stock_tons === 'number' ? `${selectedCoop.stock_tons.toFixed(1)}t` : '—'}
+                    {typeof selectedCoop.stock_kg === 'number' ? `${selectedCoop.stock_kg.toLocaleString()} kg` : '—'}
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">Stock available</p>
                 </div>
@@ -786,7 +673,7 @@ export default function OrderManagement() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Quantity (kg) *</label>
-                <input type="number" className="input" value={form.quantity_kg} onChange={e => setForm(f => ({ ...f, quantity_kg: e.target.value }))} required min="1" />
+                <input type="number" className="input" value={form.quantity_kg} onChange={e => setForm(f => ({ ...f, quantity_kg: e.target.value }))} required min="0.01" step="0.01" />
               </div>
               <div>
                 <label className="label">Delivery deadline *</label>
@@ -797,6 +684,30 @@ export default function OrderManagement() {
               <label className="label">Additional notes</label>
               <textarea className="input" rows={2} value={form.additional_notes} onChange={e => setForm(f => ({ ...f, additional_notes: e.target.value }))} placeholder="Any special requirements…" />
             </div>
+            <div>
+              <label className="label">Delivery method</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setForm(f => ({ ...f, delivery_method: 'SELF_COLLECTION' }))}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                    form.delivery_method === 'SELF_COLLECTION'
+                      ? 'bg-primary-50 border-primary-300 text-primary-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                  <Truck className="w-4 h-4 flex-shrink-0" /> I'll collect it myself
+                </button>
+                <button type="button" onClick={() => setForm(f => ({ ...f, delivery_method: 'TRANSPORTER_DELIVERY' }))}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                    form.delivery_method === 'TRANSPORTER_DELIVERY'
+                      ? 'bg-primary-50 border-primary-300 text-primary-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                  <Package className="w-4 h-4 flex-shrink-0" /> Cooperative arranges transport
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                {form.delivery_method === 'SELF_COLLECTION'
+                  ? "You'll send your own vehicle to pick up the produce."
+                  : 'The cooperative will hire a transporter to deliver to your warehouse.'}
+              </p>
+            </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={closeCoopModal} className="btn-secondary flex-1">Cancel</button>
               <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
@@ -806,61 +717,6 @@ export default function OrderManagement() {
             </div>
           </form>
         )}
-      </Modal>
-
-      {/* Create notice modal */}
-      <Modal isOpen={showNoticeForm} onClose={() => { setShowNoticeForm(false); setNoticeForm(NOTICE_BLANK) }} title="Create Collection Notice">
-        <form onSubmit={submitNotice} className="space-y-4">
-          <div>
-            <label className="label">Notice title *</label>
-            <input className="input" value={noticeForm.title} onChange={e => setNoticeForm(f => ({ ...f, title: e.target.value }))} required placeholder="e.g. Coffee Available – Batch June 2026" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Crop *</label>
-              <input className="input" value={noticeForm.crop_name} onChange={e => setNoticeForm(f => ({ ...f, crop_name: e.target.value }))} required placeholder="e.g. Coffee" />
-            </div>
-            <div>
-              <label className="label">Qty available (kg) *</label>
-              <input type="number" className="input" value={noticeForm.quantity_available_kg} onChange={e => setNoticeForm(f => ({ ...f, quantity_available_kg: e.target.value }))} required min="1" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Price/kg (RWF)</label>
-              <input type="number" className="input" value={noticeForm.price_per_kg} onChange={e => setNoticeForm(f => ({ ...f, price_per_kg: e.target.value }))} min="0" />
-            </div>
-            <div>
-              <label className="label">Pickup location</label>
-              <PlaceSearchInput
-                placeholder="Search pickup location…"
-                onSelect={({ address }) => setNoticeForm(f => ({ ...f, pickup_location: address }))}
-              />
-              {noticeForm.pickup_location && (
-                <p className="text-xs text-primary-600 mt-1 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {noticeForm.pickup_location}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Available from *</label>
-              <input type="date" className="input" value={noticeForm.available_from} onChange={e => setNoticeForm(f => ({ ...f, available_from: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="label">Available until *</label>
-              <input type="date" className="input" value={noticeForm.available_until} onChange={e => setNoticeForm(f => ({ ...f, available_until: e.target.value }))} required />
-            </div>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => { setShowNoticeForm(false); setNoticeForm(NOTICE_BLANK) }} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
-              {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {saving ? 'Publishing…' : 'Publish Notice'}
-            </button>
-          </div>
-        </form>
       </Modal>
 
       {/* View Agreement modal */}
@@ -905,7 +761,7 @@ export default function OrderManagement() {
                 <div>
                   <p className="text-xs text-gray-400 mb-0.5">Quantity</p>
                   <p className="font-semibold text-gray-900">
-                    {o.quantity_kg ? `${Number(o.quantity_kg).toLocaleString()} kg (${(Number(o.quantity_kg)/1000).toFixed(1)} tons)` : '—'}
+                    {o.quantity_kg ? `${Number(o.quantity_kg).toLocaleString()} kg` : '—'}
                   </p>
                 </div>
                 <div>
@@ -922,6 +778,14 @@ export default function OrderManagement() {
                   <p className="text-xs text-gray-400 mb-0.5">Date Placed</p>
                   <p className="font-semibold text-gray-900">
                     {o.created_at ? new Date(o.created_at).toLocaleDateString('en-RW', { year: 'numeric', month: 'long', day: 'numeric' }) : 'June 12, 2026'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Delivery method</p>
+                  <p className="font-semibold text-gray-900 flex items-center gap-1.5">
+                    {o.delivery_method === 'SELF_COLLECTION'
+                      ? <><Truck className="w-3.5 h-3.5 text-gray-400" />You collect</>
+                      : <><Package className="w-3.5 h-3.5 text-gray-400" />Cooperative arranges</>}
                   </p>
                 </div>
               </div>

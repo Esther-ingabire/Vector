@@ -191,7 +191,7 @@ export default function MyFacilities() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Capacity (kg) *</label>
-              <input type="number" className="input" required min="1" value={form.capacity_kg}
+              <input type="number" className="input" required min="0.01" step="0.01" value={form.capacity_kg}
                 onChange={e => setForm(f => ({ ...f, capacity_kg: e.target.value }))} />
             </div>
             <div>

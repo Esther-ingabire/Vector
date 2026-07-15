@@ -8,6 +8,23 @@ import { transportApi } from '../../api/transport.js'
 import { traceabilityApi } from '../../api/traceability.js'
 import toast from 'react-hot-toast'
 
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ')
+  let line = ''
+  let curY = y
+  words.forEach(word => {
+    const test = line ? `${line} ${word}` : word
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, curY)
+      line = word
+      curY += lineHeight
+    } else {
+      line = test
+    }
+  })
+  if (line) ctx.fillText(line, x, curY)
+}
+
 const statusStyles = {
   PENDING: 'bg-warning-50 text-warning-500',
   ACCEPTED: 'bg-success-50 text-success-500',
@@ -55,6 +72,68 @@ export default function ProduceRequests() {
       .finally(() => setLoadingQr(false))
     return () => setQrUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
   }, [dispatchedBatch?.id])
+
+  // Renders the QR plus the batch details onto one canvas so the printed/downloaded
+  // label carries the same info shown on screen, not just a bare QR square.
+  const downloadBatchLabel = () => {
+    if (!qrUrl || !dispatchedBatch) return
+    const img = new Image()
+    img.onload = () => {
+      const width = 480
+      const qrSize = 320
+      const pad = 32
+      const rows = [
+        ['Batch Code', dispatchedBatch.batch_id_short],
+        ['Crop Type', dispatchedBatch.crop_name],
+        ['Grade', `Grade ${dispatchedBatch.quality_grade_at_dispatch}`],
+        ['Origin District', user?.district || dispatchedBatch.cooperative_name || '—'],
+      ]
+      const rowHeight = 44
+      const height = pad + 28 + qrSize + pad + rows.length * rowHeight + pad + 40
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+
+      ctx.fillStyle = '#111827'
+      ctx.font = 'bold 18px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('ChainSight Batch Label', width / 2, pad + 4)
+
+      const qrX = (width - qrSize) / 2
+      const qrY = pad + 28
+      ctx.drawImage(img, qrX, qrY, qrSize, qrSize)
+
+      let y = qrY + qrSize + pad
+      rows.forEach(([k, v]) => {
+        ctx.textAlign = 'left'
+        ctx.fillStyle = '#6b7280'
+        ctx.font = '13px sans-serif'
+        ctx.fillText(k.toUpperCase(), pad, y)
+        ctx.fillStyle = '#111827'
+        ctx.font = 'bold 16px monospace'
+        ctx.fillText(String(v || '—'), pad, y + 20)
+        y += rowHeight
+      })
+
+      ctx.fillStyle = '#9ca3af'
+      ctx.font = '11px sans-serif'
+      ctx.textAlign = 'center'
+      wrapText(ctx, 'Scan this code at each handover point to record a tamper-evident traceability event.', width / 2, y + 12, width - pad * 2, 14)
+
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `batch-${dispatchedBatch.batch_id_short}-label.png`
+        a.click()
+        URL.revokeObjectURL(url)
+      })
+    }
+    img.src = qrUrl
+  }
 
   useEffect(() => {
     distributionApi.getMyProduceRequests()
@@ -154,6 +233,13 @@ export default function ProduceRequests() {
       </div>
     )},
     { key: 'required_delivery_date', label: 'Needed by' },
+    { key: 'delivery_method', label: 'Delivery', render: v => (
+      <span className="text-xs text-gray-500 flex items-center gap-1">
+        {v === 'SELF_COLLECTION'
+          ? <><Package className="w-3 h-3" />Distributor collects</>
+          : <><Truck className="w-3 h-3" />You arrange transport</>}
+      </span>
+    )},
     { key: 'status', label: 'Status', render: v => (
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyles[v] || 'bg-gray-100 text-gray-500'}`}>{statusLabel[v] || v}</span>
     )},
@@ -212,6 +298,8 @@ export default function ProduceRequests() {
                 ['Quantity', `${Number(selected.quantity_kg).toLocaleString()} kg`],
                 ['Grade required', `Grade ${selected.quality_grade_required}`],
                 ['Needed by', selected.required_delivery_date],
+                ['Delivery method', selected.delivery_method === 'SELF_COLLECTION'
+                  ? 'Distributor collects themselves' : 'You arrange a transporter'],
                 ['Submitted', selected.created_at?.split('T')[0]],
               ].map(([k, v]) => (
                 <div key={k} className="bg-gray-50 rounded-lg p-3">
@@ -260,10 +348,19 @@ export default function ProduceRequests() {
               <p className="text-gray-500">{dispatching.crop_name} · requested {Number(dispatching.quantity_kg).toLocaleString()} kg</p>
             </div>
 
+            <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium ${
+              dispatching.delivery_method === 'SELF_COLLECTION'
+                ? 'bg-gray-50 border-gray-200 text-gray-700'
+                : 'bg-primary-50 border-primary-200 text-primary-700'}`}>
+              {dispatching.delivery_method === 'SELF_COLLECTION'
+                ? <><Package className="w-4 h-4 flex-shrink-0" /> Distributor will collect this themselves — no transporter needed</>
+                : <><Truck className="w-4 h-4 flex-shrink-0" /> Distributor expects you to arrange a transporter</>}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Dispatch weight (kg) *</label>
-                <input type="number" className="input" required min="1"
+                <input type="number" className="input" required min="0.01" step="0.01"
                   value={dispatchForm.dispatch_weight_kg}
                   onChange={e => setDispatchForm(f => ({ ...f, dispatch_weight_kg: e.target.value }))} />
               </div>
@@ -338,13 +435,13 @@ export default function ProduceRequests() {
             <div className="flex gap-3 pt-2">
               <button onClick={() => setDispatchedBatch(null)} className="btn-secondary flex-1">Close</button>
               {qrUrl && (
-                <a
-                  href={qrUrl}
-                  download={`batch-${dispatchedBatch.batch_id_short}-qr.png`}
+                <button
+                  type="button"
+                  onClick={downloadBatchLabel}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" /> Download Label
-                </a>
+                </button>
               )}
             </div>
           </div>

@@ -1,13 +1,20 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   User, Lock, Eye, EyeOff, CheckCircle, Save, Camera, X, Bell, Check,
-  ShieldCheck, Download, Info,
+  ShieldCheck, Download, Info, Building2, Leaf, FileText,
 } from 'lucide-react'
 import { authApi } from '../../api/auth.js'
 import { analyticsApi, triggerDownload } from '../../api/analytics.js'
+import { cooperativesApi } from '../../api/cooperatives.js'
+import { distributionApi } from '../../api/distribution.js'
+import { transportApi } from '../../api/transport.js'
+import { marketAgentApi } from '../../api/marketAgent.js'
+import { warehouseApi } from '../../api/warehouse.js'
+import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
+import LocationSelect from '../../components/ui/LocationSelect.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
 
@@ -138,9 +145,6 @@ function AvatarSection({ user, onUpdate }) {
               {user?.avatar_url ? 'Change photo' : 'Upload photo'}
             </button>
           )}
-          <p className="text-xs text-gray-400">
-            Your photo is visible to other users in the system.
-          </p>
         </div>
       </div>
 
@@ -249,6 +253,362 @@ function ProfileSection({ user, onUpdate }) {
       </form>
     </div>
   )
+}
+
+function InfoTile({ label, value }) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-3">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      <p className="font-medium text-gray-700 text-sm">{value ?? '—'}</p>
+    </div>
+  )
+}
+
+function OrgSectionShell({ title, subtitle, children }) {
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+        <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
+          <Building2 className="w-5 h-5 text-primary-600" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-gray-900">{title}</h2>
+          {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function SaveButton({ saving }) {
+  return (
+    <button type="submit" disabled={saving} className="btn-primary flex items-center gap-2 disabled:opacity-50">
+      {saving ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
+      {saving ? 'Saving…' : 'Save changes'}
+    </button>
+  )
+}
+
+function CooperativeOrgSection() {
+  const [coop, setCoop] = useState(null)
+  const [form, setForm] = useState({ name: '', description: '', district: '', sector: '', contact_phone: '', contact_email: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    cooperativesApi.getMyCooperative()
+      .then(res => {
+        const d = res.data
+        setCoop(d)
+        setForm({
+          name: d.name || '', description: d.description || '', district: d.district || '',
+          sector: d.sector || '', contact_phone: d.contact_phone || '', contact_email: d.contact_email || '',
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    if (!coop?.id) return
+    setSaving(true)
+    try {
+      const res = await cooperativesApi.updateCooperative(coop.id, form)
+      setCoop(prev => ({ ...prev, ...res.data }))
+      toast.success('Organisation profile updated')
+    } catch { toast.error('Could not save changes.') } finally { setSaving(false) }
+  }
+
+  if (loading) return null
+  const crops = coop?.crops_specialised || []
+
+  return (
+    <OrgSectionShell title="Organisation Profile" subtitle="Shown to distributors browsing cooperatives">
+      <div className="grid grid-cols-2 gap-4">
+        <InfoTile label="Registration number" value={coop?.registration_number} />
+        {coop?.reliability_score != null && <InfoTile label="Reliability score" value={`${Number(coop.reliability_score).toFixed(1)} / 5`} />}
+      </div>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Cooperative name</label>
+            <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">District</label>
+            <input className="input" value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value }))} />
+          </div>
+        </div>
+        <div>
+          <label className="label">Description</label>
+          <textarea className="input" rows={3} value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Contact phone</label>
+            <input className="input" value={form.contact_phone} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Contact email</label>
+            <input className="input" type="email" value={form.contact_email} onChange={e => setForm(f => ({ ...f, contact_email: e.target.value }))} />
+          </div>
+        </div>
+        {crops.length > 0 && (
+          <div>
+            <p className="text-xs text-gray-400 mb-2">Specialised crops — contact admin to change</p>
+            <div className="flex flex-wrap gap-2">
+              {crops.map((crop, i) => (
+                <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-success-50 text-success-700 border border-success-200">
+                  <Leaf className="w-3 h-3" />{crop.name || crop}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <SaveButton saving={saving} />
+      </form>
+    </OrgSectionShell>
+  )
+}
+
+function DistributorOrgSection() {
+  const [profile, setProfile] = useState(null)
+  const [form, setForm] = useState({ company_name: '', description: '', contact_phone: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    distributionApi.getMyProfile({ _silent: true })
+      .then(res => {
+        const d = res.data
+        setProfile(d)
+        setForm({ company_name: d.company_name || '', description: d.description || '', contact_phone: d.contact_phone || '' })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await distributionApi.updateMyProfile(form)
+      setProfile(prev => ({ ...prev, ...res.data }))
+      toast.success('Organisation profile updated')
+    } catch { toast.error('Could not save changes.') } finally { setSaving(false) }
+  }
+
+  if (loading) return null
+
+  return (
+    <OrgSectionShell title="Organisation Profile" subtitle="Shown to market agents browsing distributors">
+      <div className="grid grid-cols-2 gap-4">
+        <InfoTile label="Warehouse location" value={profile?.warehouse_location} />
+        <InfoTile label="District" value={profile?.district} />
+        <InfoTile label="Active collection notices" value={profile?.active_notices?.length ?? 0} />
+        <InfoTile label="Linked market agents" value={profile?.linked_agents_count ?? 0} />
+      </div>
+      <form onSubmit={save} className="space-y-4">
+        <div>
+          <label className="label">Company / business name</label>
+          <input className="input" value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Description</label>
+          <textarea className="input" rows={3} placeholder="What you deal in — e.g. crops you buy, volumes, specialities…"
+            value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Contact phone</label>
+          <input className="input" value={form.contact_phone} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} />
+        </div>
+        <p className="text-xs text-gray-400">Warehouse location and GPS are set at registration — contact admin to change them.</p>
+        <SaveButton saving={saving} />
+      </form>
+    </OrgSectionShell>
+  )
+}
+
+function TransportCompanyOrgSection() {
+  const [profile, setProfile] = useState(null)
+  const [drivers, setDrivers] = useState([])
+  const [form, setForm] = useState({ company_name: '', description: '', base_location: '', operating_districts: [] })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      transportApi.getMyProfile({ _silent: true }),
+      transportApi.getMyDrivers({ _silent: true }),
+    ]).then(([profileRes, driversRes]) => {
+      const d = profileRes.data
+      setProfile(d)
+      setDrivers(driversRes.data?.results ?? driversRes.data ?? [])
+      setForm({
+        company_name: d.company_name || '', description: d.description || '',
+        base_location: d.base_location || '', operating_districts: d.operating_districts || [],
+      })
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await transportApi.updateMyProfile(form)
+      setProfile(res.data)
+      toast.success('Company profile updated')
+    } catch (err) { toast.error(err.response?.data?.detail || 'Could not save changes.') } finally { setSaving(false) }
+  }
+
+  if (loading) return null
+
+  const allVehicles = [...(profile?.vehicles || []), ...drivers.flatMap(d => d.vehicles || [])]
+  const totalCapacity = allVehicles.reduce((sum, v) => sum + Number(v.capacity_kg || 0), 0)
+  const hasRefrigerated = allVehicles.some(v => v.vehicle_type === 'REFRIGERATED' || v.has_iot_temperature)
+
+  return (
+    <OrgSectionShell title="Company Profile" subtitle="Visible to cooperatives and distributors you work with">
+      <div className="grid grid-cols-2 gap-4">
+        <InfoTile label="Drivers" value={drivers.length} />
+        <InfoTile label="Vehicles" value={allVehicles.length} />
+        <InfoTile label="Cold chain capable" value={hasRefrigerated ? 'Yes' : 'No'} />
+        <InfoTile label="Total fleet capacity" value={`${totalCapacity.toLocaleString()} kg`} />
+      </div>
+      <form onSubmit={save} className="space-y-4">
+        <div>
+          <label className="label">Company name</label>
+          <input className="input" value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Description</label>
+          <textarea className="input" rows={3} value={form.description}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Base location</label>
+          <LocationSelect value={form.base_location} onChange={val => setForm(f => ({ ...f, base_location: val }))} placeholder="Select base district…" />
+        </div>
+        <div>
+          <label className="label">Operating districts</label>
+          <DistrictPicker value={form.operating_districts} onChange={val => setForm(f => ({ ...f, operating_districts: val }))} />
+        </div>
+        <SaveButton saving={saving} />
+      </form>
+    </OrgSectionShell>
+  )
+}
+
+function MarketAgentOrgSection() {
+  const [form, setForm] = useState({ stall_number: '', market_name: '', market_district: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    marketAgentApi.getMyProfile()
+      .then(res => {
+        const d = res.data
+        setForm({ stall_number: d.stall_number || '', market_name: d.market_name || '', market_district: d.market_district || '' })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await marketAgentApi.updateMyProfile(form)
+      toast.success('Profile updated')
+    } catch { toast.error('Could not save changes.') } finally { setSaving(false) }
+  }
+
+  if (loading) return null
+
+  return (
+    <OrgSectionShell title="Stall &amp; Market Details" subtitle="Where cooperatives and distributors find you">
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Market name</label>
+            <input className="input" value={form.market_name} onChange={e => setForm(f => ({ ...f, market_name: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Stall number</label>
+            <input className="input" value={form.stall_number} onChange={e => setForm(f => ({ ...f, stall_number: e.target.value }))} />
+          </div>
+        </div>
+        <div>
+          <label className="label">Market district</label>
+          <input className="input" value={form.market_district} onChange={e => setForm(f => ({ ...f, market_district: e.target.value }))} />
+        </div>
+        <SaveButton saving={saving} />
+      </form>
+    </OrgSectionShell>
+  )
+}
+
+function WarehouseManagerOrgSection() {
+  const [form, setForm] = useState({ company_name: '', district: '', contact_phone: '' })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    warehouseApi.getMyProfile()
+      .then(res => {
+        const d = res.data
+        setForm({ company_name: d.company_name || '', district: d.district || '', contact_phone: d.contact_phone || '' })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const save = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      await warehouseApi.updateMyProfile(form)
+      toast.success('Company profile updated')
+    } catch { toast.error('Could not save changes.') } finally { setSaving(false) }
+  }
+
+  if (loading) return null
+
+  return (
+    <OrgSectionShell title="Warehouse Company Profile" subtitle="Shown to cooperatives browsing warehouses to rent">
+      <form onSubmit={save} className="space-y-4">
+        <div>
+          <label className="label">Company name</label>
+          <input className="input" value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">District</label>
+            <input className="input" value={form.district} onChange={e => setForm(f => ({ ...f, district: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Contact phone</label>
+            <input className="input" value={form.contact_phone} onChange={e => setForm(f => ({ ...f, contact_phone: e.target.value }))} />
+          </div>
+        </div>
+        <SaveButton saving={saving} />
+      </form>
+    </OrgSectionShell>
+  )
+}
+
+function OrganizationProfileSection({ role }) {
+  switch (role) {
+    case 'COOPERATIVE_MANAGER': return <CooperativeOrgSection />
+    case 'DISTRIBUTOR': return <DistributorOrgSection />
+    case 'TRANSPORT_COMPANY': return <TransportCompanyOrgSection />
+    case 'MARKET_AGENT': return <MarketAgentOrgSection />
+    case 'WAREHOUSE_MANAGER': return <WarehouseManagerOrgSection />
+    default: return null
+  }
 }
 
 function PasswordSection() {
@@ -452,18 +812,19 @@ function TwoFactorSection({ user, onUpdate }) {
 }
 
 function DataControlsSection() {
-  const [downloading, setDownloading] = useState(false)
+  const [downloading, setDownloading] = useState(null) // 'csv' | 'pdf' | null
 
-  const handleDownload = async () => {
-    setDownloading(true)
+  const handleDownload = async (format) => {
+    setDownloading(format)
     try {
-      const res = await analyticsApi.exportReport({ report_type: 'complete', file_format: 'csv' })
-      triggerDownload(res, `chainsight_my_data_${new Date().toISOString().slice(0, 10)}.csv`)
+      const res = await analyticsApi.exportReport({ report_type: 'complete', file_format: format })
+      const date = new Date().toISOString().slice(0, 10)
+      triggerDownload(res, `chainsight_my_data_${date}.${format}`)
       toast.success('Your data export has started downloading.')
     } catch {
       toast.error('Could not generate your data export. Try again.')
     } finally {
-      setDownloading(false)
+      setDownloading(null)
     }
   }
 
@@ -481,13 +842,20 @@ function DataControlsSection() {
       <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl gap-4">
         <div>
           <p className="text-sm font-medium text-gray-800">Download my data</p>
-          <p className="text-xs text-gray-500 mt-0.5">A complete CSV export of your role's records (batches, orders, reports, and more)</p>
+          <p className="text-xs text-gray-500 mt-0.5">A full export of your role's records (batches, orders, reports, and more)</p>
         </div>
-        <button onClick={handleDownload} disabled={downloading}
-          className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50 shrink-0">
-          {downloading ? <span className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
-          {downloading ? 'Preparing…' : 'Download CSV'}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => handleDownload('csv')} disabled={!!downloading}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
+            {downloading === 'csv' ? <span className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Download className="w-4 h-4" />}
+            {downloading === 'csv' ? 'Preparing…' : 'CSV'}
+          </button>
+          <button onClick={() => handleDownload('pdf')} disabled={!!downloading}
+            className="btn-secondary flex items-center gap-2 text-sm disabled:opacity-50">
+            {downloading === 'pdf' ? <span className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" /> : <FileText className="w-4 h-4" />}
+            {downloading === 'pdf' ? 'Preparing…' : 'PDF'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -519,7 +887,7 @@ function AboutSection() {
 const ROLE_NOTIF_SETTINGS = {
   ADMIN: [
     { label: 'New Registration Requests', desc: 'Notify when a new access request is submitted' },
-    { label: 'IoT Device Alerts',         desc: 'Notify when a sensor or vehicle device goes offline' },
+    { label: 'Data Source Health',        desc: 'Notify when a data source (GPS, IoT, or form submissions) goes stale — see Data Integration' },
     { label: 'Security Alerts',           desc: 'Notify on account lockouts and suspicious activity' },
   ],
   COOPERATIVE_MANAGER: [
@@ -613,6 +981,7 @@ export default function SettingsPage() {
       </div>
       <AvatarSection user={user} onUpdate={updateUser} />
       <ProfileSection user={user} onUpdate={updateUser} />
+      <OrganizationProfileSection role={user?.role} />
       <PasswordSection />
       <TwoFactorSection user={user} onUpdate={updateUser} />
       <NotificationPreferencesSection role={user?.role} />

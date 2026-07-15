@@ -80,7 +80,7 @@ export default function DistributorDashboard() {
   const navigate = useNavigate()
   const [coops, setCoops] = useState([])
   const [deliveries, setDeliveries] = useState([])
-  const [stats, setStats] = useState({ active_orders: 0, pending_deliveries: 0, stock_tons: 0, loss_rate: 0 })
+  const [stats, setStats] = useState({ active_orders: 0, pending_deliveries: 0, stock_kg: 0, loss_rate: 0 })
   const [searchQ, setSearchQ] = useState('')
   const [pendingAgentOrders, setPendingAgentOrders] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -120,7 +120,14 @@ export default function DistributorDashboard() {
           batch_id: b.id,
         }))
       setDeliveries(incoming.slice(0, 5))
-      setStats(s => ({ ...s, pending_deliveries: incoming.filter(b => b.status === 'IN_TRANSIT_LEG1').length }))
+      const stockKg = batches
+        .filter(b => b.current_status === 'AT_DISTRIBUTOR')
+        .reduce((sum, b) => sum + Number(b.weight_at_distributor_kg ?? b.dispatch_weight_kg ?? 0), 0)
+      setStats(s => ({
+        ...s,
+        pending_deliveries: incoming.filter(b => b.status === 'IN_TRANSIT_LEG1').length,
+        stock_kg: stockKg,
+      }))
     }).finally(() => setLoading(false))
   }, [])
 
@@ -138,7 +145,7 @@ export default function DistributorDashboard() {
 
       {/* Pending agent orders banner */}
       {pendingAgentOrders > 0 && (
-        <Link to="/distributor/agent-orders"
+        <Link to="/distributor/agents?tab=orders"
           className="flex items-center gap-4 px-5 py-4 bg-warning-50 border border-warning-200 rounded-2xl hover:bg-warning-100 transition-colors">
           <Bell className="w-5 h-5 text-warning-500 flex-shrink-0" />
           <p className="text-sm font-semibold text-warning-800 flex-1">
@@ -169,7 +176,7 @@ export default function DistributorDashboard() {
             <Package className="w-5 h-5 text-success-500" />
             <p className="text-sm text-gray-500">Stock on Hand</p>
           </div>
-          <p className="text-3xl font-bold text-success-600">{stats.stock_tons} tons</p>
+          <p className="text-3xl font-bold text-success-600">{stats.stock_kg.toLocaleString()} kg</p>
         </div>
         <div className="card">
           <div className="flex items-center gap-3 mb-2">
@@ -210,7 +217,9 @@ export default function DistributorDashboard() {
                 <p className="font-semibold text-gray-900">{coop.name}</p>
                 <p className="text-sm text-gray-500">{coop.crops_specialised?.slice(0, 3).join(', ')}</p>
                 <p className="text-sm font-medium text-success-600">
-                  Stock: {typeof coop.stock_tons === 'number' ? coop.stock_tons.toFixed(1) : '—'} tons
+                  {coop.composite_score != null
+                    ? `${Math.round(coop.composite_score * 100)}% reliability · ${coop.total_batches_dispatched || 0} batches`
+                    : `${coop.total_batches_dispatched || 0} batches dispatched`}
                 </p>
                 <Link
                   to={`/distributor/orders?coop=${coop.id}`}

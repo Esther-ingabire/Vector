@@ -1,7 +1,9 @@
 from django.utils import timezone
+from django.db.models import Avg, Count, Q
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from .models import Transporter, Vehicle, TransportRequest, Trip, GPSTrack, IncidentReport, TransporterRating
 from .serializers import (
     TransporterSerializer, DriverSerializer, VehicleSerializer,
@@ -64,6 +66,53 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
             )
         drivers = company.drivers.select_related('user').prefetch_related('vehicles', 'transport_requests')
         return Response(DriverSerializer(drivers, many=True).data)
+
+    @action(detail=True, methods=['patch', 'delete'], url_path='manage-driver', permission_classes=[IsTransporter])
+    def manage_driver(self, request, pk=None):
+        """Update contact/location details, or suspend/reactivate, a driver registered under
+        this Transport Company. DELETE is a shorthand for suspending; PATCH with is_active
+        also works and additionally supports reactivation."""
+        try:
+            company = request.user.transporter_profile
+        except Transporter.DoesNotExist:
+            return Response({'detail': 'No transporter profile found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            driver = Transporter.objects.get(pk=pk, parent_company=company)
+        except Transporter.DoesNotExist:
+            return Response({'detail': 'Driver not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == 'DELETE':
+            driver.is_active = False
+            driver.save(update_fields=['is_active'])
+            return Response({'detail': 'Driver suspended.'})
+
+        from django.db import IntegrityError
+        user_fields = {f: request.data[f] for f in ('first_name', 'last_name', 'phone_number', 'email') if f in request.data}
+        if user_fields:
+            for k, v in user_fields.items():
+                setattr(driver.user, k, v)
+            try:
+                driver.user.save(update_fields=list(user_fields.keys()))
+            except IntegrityError as e:
+                err = str(e)
+                if 'phone_number' in err:
+                    return Response({'phone_number': ['A user with this phone number already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+                if 'email' in err:
+                    return Response({'email': ['A user with this email already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'detail': 'Could not update — a duplicate entry exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'base_location' in request.data:
+            driver.base_location = request.data['base_location']
+        if 'operating_districts' in request.data:
+            districts = request.data['operating_districts']
+            if isinstance(districts, str):
+                districts = [d.strip() for d in districts.split(',') if d.strip()]
+            driver.operating_districts = districts
+        if 'is_active' in request.data:
+            driver.is_active = bool(request.data['is_active'])
+        driver.save()
+        return Response(DriverSerializer(driver).data)
 
     @action(detail=False, methods=['get'], url_path='my-ratings', permission_classes=[IsTransporter])
     def my_ratings(self, request):
@@ -175,6 +224,48 @@ class TransporterViewSet(viewsets.ReadOnlyModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
 
+class TransporterDirectoryView(APIView):
+    """
+    GET /api/v1/transport/directory/ — independent transporters available to hire, for
+    cooperatives/distributors that don't own their own trucks (or want extra capacity
+    beyond their own drivers). Deliberately excludes drivers owned by a cooperative,
+    distributor, or transport company — those aren't independently hireable; you'd hire
+    the owning business instead, or (for cooperative/distributor own-drivers) they simply
+    aren't offered out to other businesses at all.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = Transporter.objects.filter(
+            is_active=True,
+            registered_by_cooperative__isnull=True,
+            registered_by_distributor__isnull=True,
+            parent_company__isnull=True,
+        ).select_related('user').prefetch_related('vehicles')
+
+        search = request.query_params.get('search')
+        district = request.query_params.get('district')
+        if search:
+            qs = qs.filter(
+                Q(company_name__icontains=search) |
+                Q(user__first_name__icontains=search) |
+                Q(user__last_name__icontains=search)
+            )
+        if district:
+            qs = qs.filter(operating_districts__icontains=district)
+
+        qs = qs.annotate(avg_rating=Avg('ratings__rating'), rating_count=Count('ratings'))
+
+        results = []
+        for t in qs:
+            data = TransporterSerializer(t).data
+            data['average_rating'] = round(t.avg_rating, 1) if t.avg_rating else None
+            data['rating_count'] = t.rating_count
+            results.append(data)
+        results.sort(key=lambda r: (-(r['average_rating'] or 0), -r['rating_count']))
+        return Response(results)
+
+
 class VehicleViewSet(viewsets.ModelViewSet):
     serializer_class = VehicleSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -191,18 +282,54 @@ class VehicleViewSet(viewsets.ModelViewSet):
                 # A company manages vehicles for itself and for every driver it registered.
                 return Vehicle.objects.filter(Q(transporter=me) | Q(transporter__parent_company=me))
             return Vehicle.objects.filter(transporter=me)
+        if user.role == 'DISTRIBUTOR':
+            try:
+                dist = user.distributor_profile
+            except Exception:
+                return Vehicle.objects.none()
+            return Vehicle.objects.filter(transporter__registered_by_distributor=dist)
+        if user.role == 'COOPERATIVE_MANAGER':
+            coop = getattr(user, 'cooperative', None)
+            if not coop:
+                return Vehicle.objects.none()
+            return Vehicle.objects.filter(transporter__registered_by_cooperative=coop)
         return Vehicle.objects.filter(is_active=True)
 
     def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
         user = self.request.user
-        me = user.transporter_profile
-        target = me
         driver_id = self.request.data.get('transporter')
-        if user.role == 'TRANSPORT_COMPANY' and driver_id:
-            driver = Transporter.objects.filter(id=driver_id, parent_company=me).first()
-            if driver:
-                target = driver
-        serializer.save(transporter=target)
+
+        if user.role in ('TRANSPORTER', 'TRANSPORT_COMPANY'):
+            me = user.transporter_profile
+            target = me
+            if user.role == 'TRANSPORT_COMPANY' and driver_id:
+                driver = Transporter.objects.filter(id=driver_id, parent_company=me).first()
+                if driver:
+                    target = driver
+            serializer.save(transporter=target)
+            return
+
+        # A distributor or cooperative that registered its own driver (no Transport Company
+        # in between) can add a vehicle on that driver's behalf, since the driver may not
+        # have logged into their own account yet to register one themselves.
+        if user.role == 'DISTRIBUTOR':
+            dist = user.distributor_profile
+            driver = Transporter.objects.filter(id=driver_id, registered_by_distributor=dist).first()
+            if not driver:
+                raise ValidationError({'transporter': 'Not a driver you registered.'})
+            serializer.save(transporter=driver)
+            return
+
+        if user.role == 'COOPERATIVE_MANAGER':
+            coop = getattr(user, 'cooperative', None)
+            driver = Transporter.objects.filter(id=driver_id, registered_by_cooperative=coop).first() if coop else None
+            if not driver:
+                raise ValidationError({'transporter': 'Not a driver you registered.'})
+            serializer.save(transporter=driver)
+            return
+
+        raise ValidationError({'detail': 'Not permitted to register vehicles.'})
 
 
 class TransportRequestViewSet(viewsets.ModelViewSet):
@@ -492,9 +619,29 @@ class TripViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[IsTransporter], url_path='confirm-delivery')
     def confirm_delivery(self, request, pk=None):
         trip = self.get_object()
+        recipient_name = (request.data.get('recipient_name') or '').strip()
+        condition = request.data.get('condition_on_arrival', '')
+        if not recipient_name:
+            return Response({'recipient_name': ['Recipient name is required to confirm delivery.']},
+                             status=status.HTTP_400_BAD_REQUEST)
+        if condition not in Trip.ConditionOnArrival.values:
+            return Response({'condition_on_arrival': ['Select the condition of the cargo on arrival.']},
+                             status=status.HTTP_400_BAD_REQUEST)
+
         trip.actual_delivery_datetime = timezone.now()
         trip.delivery_confirmed_at = timezone.now()
         trip.delivery_notes = request.data.get('notes', '')
+        trip.recipient_name = recipient_name
+        trip.condition_on_arrival = condition
+        lat = request.data.get('delivery_gps_lat')
+        lng = request.data.get('delivery_gps_lng')
+        if lat not in (None, ''):
+            trip.delivery_gps_lat = lat
+        if lng not in (None, ''):
+            trip.delivery_gps_lng = lng
+        photo = request.FILES.get('delivery_photo')
+        if photo:
+            trip.delivery_photo = photo
         trip.transport_request.status = TransportRequest.Status.COMPLETED
         trip.transport_request.save()
         trip.save()

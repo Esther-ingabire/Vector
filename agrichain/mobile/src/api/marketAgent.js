@@ -20,3 +20,6 @@ export const getWasteReports = (params) =>
 
 export const getMyOrders = (params) =>
   client.get('/distribution/orders/', { params });
+
+export const placeOrder = (data) =>
+  client.post('/distribution/orders/', data);

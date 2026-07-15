@@ -51,7 +51,7 @@ export default function PriceRecording() {
             </div>
             <div>
               <label className="label">Price (RWF/kg)</label>
-              <input type="number" className="input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required min="1" placeholder="e.g. 850" />
+              <input type="number" className="input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required min="0.01" step="0.01" placeholder="e.g. 850" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { Search, QrCode, MapPin, CheckCircle, Truck, Package, ShoppingCart, AlertTriangle, ChevronRight, Download, Thermometer } from 'lucide-react'
 import TripTrackingMap from '../map/TripTrackingMap.jsx'
 import RiskBadge from '../ui/RiskBadge.jsx'
+import ConfirmReceiptModal from './ConfirmReceiptModal.jsx'
 import { traceabilityApi } from '../../api/traceability.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import toast from 'react-hot-toast'
@@ -149,6 +150,7 @@ export default function TraceabilityExplorer({
   const [qrUrl, setQrUrl] = useState(null)
   const [loadingQr, setLoadingQr] = useState(false)
   const [iotData, setIotData] = useState(null)
+  const [confirmTarget, setConfirmTarget] = useState(null)
 
   useEffect(() => {
     traceabilityApi.getBatches()
@@ -424,18 +426,47 @@ export default function TraceabilityExplorer({
             </div>
           )}
 
-          {/* Distributor: Confirm Receipt CTA when produce has arrived */}
+          {batch.downstream_orders?.length > 0 && (() => {
+            const totalAllocated = batch.downstream_orders.reduce((sum, o) => sum + Number(o.quantity_kg), 0)
+            const agentCount = new Set(batch.downstream_orders.map(o => o.market_agent_name)).size
+            return (
+              <div className="card">
+                <h2 className="text-base font-semibold text-gray-700 mb-1">Where this batch went</h2>
+                <p className="text-xs text-gray-500 mb-3">
+                  This batch became warehouse stock once received — {totalAllocated.toLocaleString()} kg of the {Number(batch.dispatch_weight_kg).toLocaleString()} kg dispatched
+                  has been sold on to {agentCount} market agent{agentCount !== 1 ? 's' : ''} across {batch.downstream_orders.length} order{batch.downstream_orders.length !== 1 ? 's' : ''} so far.
+                </p>
+                <div className="space-y-1.5">
+                  {batch.downstream_orders.map(o => (
+                    <div key={o.order_id} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="text-gray-700">{o.market_agent_name || 'Unknown agent'} <span className="text-gray-400">· order #{o.order_id}</span></span>
+                      <span className="font-medium text-gray-900">{Number(o.quantity_kg).toLocaleString()} kg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Distributor: Confirm Receipt CTA when produce has arrived — opens in place, no navigation */}
           {user?.role === 'DISTRIBUTOR' && batch?.current_status === 'AT_DISTRIBUTOR' && (
             <div className="card border-2 border-primary-200 bg-primary-50/40 flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-primary-700">This batch has arrived at your facility</p>
                 <p className="text-xs text-primary-600 mt-0.5">Record the received weight and quality to complete the handover.</p>
               </div>
-              <Link
-                to="/distributor/deliveries"
+              <button
+                onClick={() => setConfirmTarget({
+                  batch_id: batch.id,
+                  batch_id_short: batch.batch_id_short,
+                  cooperative_name: batch.cooperative_name,
+                  crop_name: batch.crop_name,
+                  ordered_qty_kg: batch.ordered_quantity_kg,
+                  shipped_qty_kg: batch.dispatch_weight_kg,
+                })}
                 className="btn-primary flex-shrink-0 flex items-center gap-2 text-sm px-4 py-2">
                 <CheckCircle className="w-4 h-4" /> Confirm Receipt
-              </Link>
+              </button>
             </div>
           )}
 
@@ -443,7 +474,7 @@ export default function TraceabilityExplorer({
           {user?.role === 'DISTRIBUTOR' && batch?.current_status === 'IN_TRANSIT_LEG1' && (
             <div className="card border border-blue-200 bg-blue-50/40">
               <p className="text-xs text-blue-600 font-medium">
-                Batch is still in transit. The map above shows its current position.
+                Batch is still in transit. The map above shows its route{iotData?.is_live ? ' and current position' : ''}.
                 Once it arrives, return here and click Confirm Receipt to record the handover.
               </p>
             </div>
@@ -504,6 +535,17 @@ export default function TraceabilityExplorer({
           )}
         </div>
       )}
+
+      <ConfirmReceiptModal
+        target={confirmTarget}
+        onClose={() => setConfirmTarget(null)}
+        onConfirmed={() => {
+          setConfirmTarget(null)
+          // Re-fetch so the timeline/status card reflects the handover immediately,
+          // in place — no navigation away from the batch the distributor was looking at.
+          if (batch) traceabilityApi.getBatch(batch.id, { _silent: true }).then(res => setBatch(res.data)).catch(() => {})
+        }}
+      />
     </div>
   )
 }

@@ -259,6 +259,10 @@ export default function FindDistributorsPage() {
 
             <div className="p-6 space-y-5">
 
+              {profileDist.description && (
+                <p className="text-sm text-gray-600 leading-relaxed">{profileDist.description}</p>
+              )}
+
               {/* Contact details */}
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</p>

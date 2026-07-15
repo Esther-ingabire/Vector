@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Package, Inbox, Truck, Thermometer, AlertTriangle, MapPin, Star, Snowflake, CheckCircle, XCircle } from 'lucide-react'
+import { Package, Inbox, Truck, Thermometer, AlertTriangle, MapPin, Star, Snowflake, CheckCircle, XCircle, Trophy } from 'lucide-react'
 import KPICard from '../../components/ui/KPICard.jsx'
 import DeclineReasonPicker from '../../components/ui/DeclineReasonPicker.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -18,6 +18,59 @@ function StarRow({ rating }) {
       ))}
       <span className="text-xs text-gray-500 ml-1">{rating}</span>
     </span>
+  )
+}
+
+function BestCropCard({ cropPerf, loading }) {
+  if (loading) return <div className="card h-32 animate-pulse bg-gray-50" />
+
+  const best = cropPerf?.best_crop
+  const rest = (cropPerf?.crops || []).slice(1, 4)
+
+  if (!best) {
+    return (
+      <div className="card">
+        <div className="flex items-center gap-2 mb-1">
+          <Trophy className="w-5 h-5 text-gray-300" />
+          <h2 className="font-semibold text-gray-900">Your Best Performer</h2>
+        </div>
+        <p className="text-sm text-gray-400 py-2">No batches dispatched in the last 90 days yet — this fills in once you start dispatching.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card border-2 border-success-500">
+      <div className="flex items-center gap-2 mb-3">
+        <Trophy className="w-5 h-5 text-success-600" />
+        <h2 className="font-semibold text-gray-900">Your Best Performer — Last 90 Days</h2>
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-2xl font-bold text-gray-900">{best.crop_name}</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {best.total_kg.toLocaleString()} kg dispatched across {best.batch_count} batch{best.batch_count !== 1 ? 'es' : ''}
+            {best.distinct_distributors > 0 && ` · ${best.distinct_distributors} distributor${best.distinct_distributors !== 1 ? 's' : ''} buying`}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">This is what you're moving the most — worth focusing effort here rather than spreading thin.</p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-xs text-gray-400">Avg loss</p>
+          <p className={`text-lg font-bold ${best.avg_loss_pct > 10 ? 'text-danger-600' : 'text-success-600'}`}>{best.avg_loss_pct}%</p>
+        </div>
+      </div>
+      {rest.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Also moving</p>
+          {rest.map(c => (
+            <div key={c.crop_id} className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">{c.crop_name}</span>
+              <span className="text-gray-400">{c.total_kg.toLocaleString()} kg</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -63,6 +116,7 @@ export default function CooperativeDashboard() {
   const [iotReadings, setIotReadings] = useState([])
   const [trips, setTrips] = useState([])
   const [pendingRequests, setPendingRequests] = useState([])
+  const [cropPerf, setCropPerf] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -73,13 +127,15 @@ export default function CooperativeDashboard() {
       transportApi.getMyRequests({ status: 'IN_PROGRESS' }),
       distributionApi.getMyProduceRequests({ status: 'PENDING' }),
       cooperativesApi.getMyStock(),
-    ]).then(([coopRes, facRes, iotRes, tripsRes, reqRes, stockRes]) => {
+      cooperativesApi.getCropPerformance(),
+    ]).then(([coopRes, facRes, iotRes, tripsRes, reqRes, stockRes, cropRes]) => {
       if (coopRes.status === 'fulfilled') setCooperative(coopRes.value.data || null)
       setFacilities(facRes.status === 'fulfilled' ? (facRes.value.data?.results ?? facRes.value.data ?? []) : [])
       setIotReadings(iotRes.status === 'fulfilled' ? (iotRes.value.data?.results ?? iotRes.value.data ?? []) : [])
       setTrips(tripsRes.status === 'fulfilled' ? (tripsRes.value.data?.results ?? tripsRes.value.data ?? []) : [])
       setPendingRequests(reqRes.status === 'fulfilled' ? (reqRes.value.data?.results ?? reqRes.value.data ?? []) : [])
       setStockItems(stockRes.status === 'fulfilled' ? (stockRes.value.data?.results ?? stockRes.value.data ?? []) : [])
+      setCropPerf(cropRes.status === 'fulfilled' ? cropRes.value.data : null)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -156,6 +212,8 @@ export default function CooperativeDashboard() {
         <KPICard title="Batches in Transit" value={loading ? '…' : trips.length} icon={Truck} color="primary" />
         <KPICard title="Storage Status" value={loading ? '…' : storageAlerts.length ? storageAlerts.length : 'OK'} icon={Thermometer} color={storageAlerts.length > 0 ? 'warning' : 'success'} />
       </div>
+
+      <BestCropCard cropPerf={cropPerf} loading={loading} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Incoming requests */}

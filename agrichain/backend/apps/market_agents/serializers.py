@@ -22,13 +22,16 @@ class CollectionConfirmationSerializer(serializers.ModelSerializer):
         child=serializers.ChoiceField(choices=CollectionConfirmation.ConditionCode.choices),
         write_only=True, required=False, default=list,
     )
+    market_agent_name  = serializers.SerializerMethodField()
+    crop_name          = serializers.SerializerMethodField()
+    condition_display  = serializers.CharField(source='get_condition_code_display', read_only=True, default=None)
 
     class Meta:
         model = CollectionConfirmation
         fields = [
-            'id', 'order', 'market_agent',
+            'id', 'order', 'market_agent', 'market_agent_name', 'crop_name',
             'quantity_collected_kg', 'collected_at', 'step1_idempotency_key',
-            'quantity_arrived_at_stall_kg', 'condition_code', 'condition_codes',
+            'quantity_arrived_at_stall_kg', 'condition_code', 'condition_codes', 'condition_display',
             'condition_notes', 'arrived_at', 'step2_idempotency_key',
             'self_transport_loss_kg', 'self_transport_loss_pct',
             'created_at', 'updated_at',
@@ -37,6 +40,15 @@ class CollectionConfirmationSerializer(serializers.ModelSerializer):
             'id', 'market_agent', 'self_transport_loss_kg',
             'self_transport_loss_pct', 'created_at', 'updated_at',
         ]
+
+    def get_market_agent_name(self, obj):
+        return str(obj.market_agent)
+
+    def get_crop_name(self, obj):
+        try:
+            return obj.order.collection_notice.crop.name
+        except Exception:
+            return None
 
     def to_internal_value(self, data):
         # Auto-generate idempotency keys if not supplied by client
@@ -73,10 +85,12 @@ class CollectionConfirmationSerializer(serializers.ModelSerializer):
 
 
 class WasteReportSerializer(serializers.ModelSerializer):
+    crop_name = serializers.CharField(source='crop.name', read_only=True, default=None)
+
     class Meta:
         model = WasteReport
         fields = [
-            'id', 'market_agent', 'order',
+            'id', 'market_agent', 'order', 'crop', 'crop_name',
             'reporting_period_start', 'reporting_period_end',
             'quantity_sold_kg', 'quantity_discarded_kg',
             'discard_reason', 'discard_notes',
@@ -88,6 +102,11 @@ class WasteReportSerializer(serializers.ModelSerializer):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
         if not data.get('idempotency_key'):
             data['idempotency_key'] = str(uuid.uuid4())
+        if data.get('crop_name') and not data.get('crop'):
+            from apps.distribution.serializers import _resolve_crop
+            data['crop'] = _resolve_crop(data.pop('crop_name'))
+        else:
+            data.pop('crop_name', None)
         return super().to_internal_value(data)
 
     def create(self, validated_data):
@@ -103,7 +122,7 @@ class CollectionNoticeForAgentSerializer(serializers.Serializer):
     crop_name = serializers.SerializerMethodField()
     available_quantity_kg = serializers.DecimalField(max_digits=10, decimal_places=2)
     price_per_kg = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
-    collection_deadline = serializers.DateTimeField()
+    collection_deadline = serializers.DateTimeField(allow_null=True)
     pickup_location = serializers.CharField()
     distributor_name = serializers.SerializerMethodField()
     risk_level = serializers.SerializerMethodField()
@@ -119,6 +138,8 @@ class CollectionNoticeForAgentSerializer(serializers.Serializer):
             return ''
 
     def _hours_left(self, obj):
+        if obj.collection_deadline is None:
+            return float('inf')  # no deadline set — never urgent
         now = self.context.get('now') or __import__('django.utils.timezone', fromlist=['timezone']).timezone.now()
         delta = obj.collection_deadline - now
         return delta.total_seconds() / 3600

@@ -1,13 +1,18 @@
 import qrcode
 import io
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from .models import Batch, QRCodeScanEvent
 from .serializers import BatchSerializer, BatchListSerializer, QRCodeScanEventSerializer
+from apps.authentication.permissions import IsDistributor
+from apps.notifications.models import Notification
+from apps.notifications.services import notify
 
 
 class BatchViewSet(viewsets.ModelViewSet):
@@ -57,8 +62,11 @@ class BatchViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def qr(self, request, pk=None):
         batch = self.get_object()
+        # Encode a full URL, not a bare UUID — scanning with an ordinary phone camera
+        # must open a page, not just display meaningless text.
+        track_url = f"{settings.FRONTEND_URL}/track/{batch.batch_id}"
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
-        qr.add_data(str(batch.batch_id))
+        qr.add_data(track_url)
         qr.make(fit=True)
         img = qr.make_image(fill_color='black', back_color='white')
         buf = io.BytesIO()
@@ -95,9 +103,16 @@ class BatchViewSet(viewsets.ModelViewSet):
         active_request = None
         latest_request = None
         for req in (batch.transport_request_leg1, batch.transport_request_leg2):
-            if req and hasattr(req, 'trip'):
+            if not req:
+                continue
+            # The static pickup->destination route only needs the request's own GPS fields,
+            # not a Trip — a Trip (and therefore live GPS/temperature readings) only exists
+            # once the transporter has actually picked up. Without this, a batch showed no
+            # map at all while still "In Transit — Leg 1", which is exactly when a distributor
+            # most wants to see where it's coming from.
+            latest_request = req  # leg2 (if present) wins as the most relevant leg
+            if hasattr(req, 'trip'):
                 trip_ids.append(req.trip.id)
-                latest_request = req  # leg2 (if present) wins as the most relevant leg
                 if not req.trip.delivery_confirmed_at:
                     active_request = req
 
@@ -115,7 +130,7 @@ class BatchViewSet(viewsets.ModelViewSet):
                 'destination': route_request.destination,
                 'destination_gps_lat': route_request.destination_gps_lat,
                 'destination_gps_lng': route_request.destination_gps_lng,
-                'delivered': route_request is not active_request,
+                'delivered': hasattr(route_request, 'trip') and bool(route_request.trip.delivery_confirmed_at),
             }
         return Response({
             'temperature_readings': VehicleIoTReadingSerializer(readings, many=True).data,
@@ -201,6 +216,40 @@ class BatchViewSet(viewsets.ModelViewSet):
 
         return Response(BatchSerializer(batch).data)
 
+    @action(detail=True, methods=['post'], url_path='report-mismatch', permission_classes=[IsDistributor])
+    def report_mismatch(self, request, pk=None):
+        """
+        Distributor reports that what physically arrived does not match this batch's
+        recorded crop — a content/identity mismatch, not a quantity shortfall (which
+        confirm_receipt already handles). E.g. the cooperative attached the wrong label
+        to the wrong physical produce before dispatch.
+        """
+        batch = self.get_object()
+        description = (request.data.get('description') or '').strip()
+        notes = request.data.get('notes', '')
+        if not description:
+            return Response({'description': ['Describe what was actually received.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        batch.mismatch_reported = True
+        batch.mismatch_reported_at = timezone.now()
+        batch.mismatch_description = description
+        batch.mismatch_notes = notes
+        batch.save(update_fields=['mismatch_reported', 'mismatch_reported_at', 'mismatch_description', 'mismatch_notes'])
+
+        if batch.cooperative and batch.cooperative.manager:
+            notify(
+                batch.cooperative.manager,
+                Notification.NotificationType.BATCH_MISMATCH_REPORTED,
+                f'Mismatch Reported — Batch {str(batch.batch_id)[:8].upper()}',
+                f'{request.user.get_full_name() or request.user.username} reports Batch {str(batch.batch_id)[:8].upper()} '
+                f'does not match what was ordered. Expected: {batch.crop.name}. '
+                f'Reported as received: {description}.'
+                + (f' Notes: {notes}' if notes else ''),
+                related_object_type='batch', related_object_id=batch.id,
+            )
+
+        return Response(BatchSerializer(batch).data)
+
 
 class QRCodeScanEventViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = QRCodeScanEventSerializer
@@ -211,3 +260,80 @@ class QRCodeScanEventViewSet(viewsets.ReadOnlyModelViewSet):
         if batch_id:
             return QRCodeScanEvent.objects.filter(batch_id=batch_id)
         return QRCodeScanEvent.objects.all()
+
+
+class PublicBatchTrackView(APIView):
+    """
+    GET /api/v1/traceability/track/<uuid:batch_id>/ — no authentication required.
+    What the QR code printed on a batch label actually points at, so anyone scanning it
+    with an ordinary phone camera (a buyer, an auditor, a defense panel) sees the batch's
+    chain of custody without needing a ChainSight account. Deliberately exposes only
+    non-sensitive fields — no phone numbers, no exact GPS, no internal user identities.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, batch_id=None):
+        try:
+            batch = Batch.objects.select_related(
+                'cooperative', 'crop', 'received_by_distributor',
+            ).prefetch_related('qr_scans').get(batch_id=batch_id)
+        except (Batch.DoesNotExist, ValueError, TypeError):
+            return Response({'detail': 'No batch found for this code.'}, status=status.HTTP_404_NOT_FOUND)
+
+        timeline = [
+            {
+                'point': 'DISPATCH',
+                'label': 'Dispatched from cooperative',
+                'timestamp': batch.dispatch_timestamp,
+            }
+        ]
+        for scan in batch.qr_scans.all():
+            timeline.append({
+                'point': scan.scan_point,
+                'label': scan.get_scan_point_display(),
+                'timestamp': scan.scanned_at,
+            })
+        if batch.distributor_receipt_timestamp and not any(
+            t['point'] == 'DISTRIBUTOR_RECEIPT' for t in timeline
+        ):
+            timeline.append({
+                'point': 'DISTRIBUTOR_RECEIPT',
+                'label': 'Received by distributor',
+                'timestamp': batch.distributor_receipt_timestamp,
+            })
+        timeline.sort(key=lambda t: t['timestamp'])
+
+        # Downstream fan-out summary — a batch dispatched in bulk (e.g. 90,000kg) becomes
+        # warehouse stock and is typically sold on to many market agents in small orders.
+        # This is a privacy-safe aggregate for an anonymous scanner: no market agent names,
+        # just "how many orders/buyers has this batch's stock reached so far".
+        from django.db.models import Sum, Count
+        allocation_summary = batch.allocations.aggregate(
+            total_allocated_kg=Sum('quantity_kg'),
+            order_count=Count('order', distinct=True),
+            market_agent_count=Count('order__market_agent', distinct=True),
+        )
+
+        return Response({
+            'batch_id_short': str(batch.batch_id)[:8].upper(),
+            'crop_name': batch.crop.name,
+            'status': batch.current_status,
+            'status_display': batch.get_current_status_display(),
+            'origin_cooperative': batch.cooperative.name,
+            'origin_district': batch.cooperative.district,
+            'dispatch_weight_kg': batch.dispatch_weight_kg,
+            'quality_grade_at_dispatch': batch.quality_grade_at_dispatch,
+            'dispatch_timestamp': batch.dispatch_timestamp,
+            'distributor_name': str(batch.received_by_distributor) if batch.received_by_distributor else None,
+            'weight_at_distributor_kg': batch.weight_at_distributor_kg,
+            'distributor_receipt_timestamp': batch.distributor_receipt_timestamp,
+            'transit_loss_leg1_pct': batch.transit_loss_leg1_pct,
+            'self_transport_loss_pct': batch.self_transport_loss_pct,
+            'market_spoilage_loss_pct': batch.market_spoilage_loss_pct,
+            'total_loss_pct': batch.total_loss_pct,
+            'mismatch_reported': batch.mismatch_reported,
+            'timeline': timeline,
+            'downstream_orders_count': allocation_summary['order_count'] or 0,
+            'downstream_market_agents_count': allocation_summary['market_agent_count'] or 0,
+            'downstream_allocated_kg': allocation_summary['total_allocated_kg'],
+        })

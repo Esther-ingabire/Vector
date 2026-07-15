@@ -2,6 +2,7 @@ import apiClient from './client.js'
 
 export const warehouseApi = {
   getMyProfile: () => apiClient.get('/cooperatives/warehouse-managers/my/'),
+  updateMyProfile: (data) => apiClient.patch('/cooperatives/warehouse-managers/my/', data),
 
   // Facilities I own/manage
   getMyFacilities: () => apiClient.get('/cooperatives/facilities/'),

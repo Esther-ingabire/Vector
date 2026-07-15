@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, Search, Route, Star } from 'lucide-react'
+import { Truck, Plus, CheckCircle, Clock, MapPin, Users, UserPlus, X, Phone, Snowflake, Pencil, UserX, RotateCcw, Search, Route, Star } from 'lucide-react'
 import Modal from '../../components/ui/Modal.jsx'
 import DistrictPicker from '../../components/ui/DistrictPicker.jsx'
+import LocationSelect from '../../components/ui/LocationSelect.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import DataTable from '../../components/ui/DataTable.jsx'
 import PlaceSearchInput from '../../components/map/PlaceSearchInput.jsx'
@@ -17,9 +18,9 @@ const MOCK_REQUESTS = [
 ]
 
 const MOCK_TRANSPORTERS = [
-  { id: 1, first_name: 'Claude',  last_name: 'Mugisha',   phone_number: '+250781234567', company_name: 'Mugisha Transport', operating_districts: 'Musanze, Kigali' },
-  { id: 2, first_name: 'Marie',   last_name: 'Uwase',     phone_number: '+250782345678', company_name: 'Uwase Logistics',   operating_districts: 'Huye, Kigali' },
-  { id: 3, first_name: 'Jean',    last_name: 'Habimana',  phone_number: '+250783456789', company_name: 'Habimana Freight',  operating_districts: 'Rwamagana, Huye' },
+  { id: 1, first_name: 'Claude',  last_name: 'Mugisha',   phone_number: '+250781234567', operating_districts: 'Musanze, Kigali' },
+  { id: 2, first_name: 'Marie',   last_name: 'Uwase',     phone_number: '+250782345678', operating_districts: 'Huye, Kigali' },
+  { id: 3, first_name: 'Jean',    last_name: 'Habimana',  phone_number: '+250783456789', operating_districts: 'Rwamagana, Huye' },
 ]
 
 const BLANK_REQUEST = {
@@ -35,7 +36,17 @@ const BLANK_REQUEST = {
 
 const BLANK_TRANSPORTER = {
   first_name: '', last_name: '', phone_number: '', email: '',
-  company_name: '', operating_districts: '',
+  operating_districts: '',
+}
+
+const BLANK_VEHICLE = { vehicle_type: 'PICKUP', plate_number: '', capacity_kg: '', operating_districts: '' }
+
+const VEHICLE_TYPE_LABELS = {
+  REFRIGERATED:   'Refrigerated Truck',
+  STANDARD_TRUCK: 'Standard Truck',
+  PICKUP:         'Pickup Truck',
+  MOTORCYCLE:     'Motorcycle',
+  MINIBUS:        'Minibus',
 }
 
 export default function TransportRequests() {
@@ -50,8 +61,12 @@ export default function TransportRequests() {
   const [showRegister, setShowRegister] = useState(false)
   const [showEditTransporter, setShowEditTransporter] = useState(false)
   const [editingTransporter, setEditingTransporter] = useState(null)
-  const [editTForm, setEditTForm] = useState({ company_name: '', operating_districts: '' })
+  const [editTForm, setEditTForm] = useState({ first_name: '', last_name: '', phone_number: '', email: '', base_location: '', operating_districts: [] })
+  const [suspendingId, setSuspendingId] = useState(null)
   const [form, setForm] = useState(BLANK_REQUEST)
+  const [vehicleTarget, setVehicleTarget] = useState(null)
+  const [vehicleForm, setVehicleForm] = useState(BLANK_VEHICLE)
+  const [savingVehicle, setSavingVehicle] = useState(false)
   const [ratingTarget, setRatingTarget] = useState(null)
   const [ratingValue, setRatingValue] = useState(0)
   const [ratingHover, setRatingHover] = useState(0)
@@ -59,6 +74,9 @@ export default function TransportRequests() {
   const [submittingRating, setSubmittingRating] = useState(false)
   const [tForm, setTForm] = useState(BLANK_TRANSPORTER)
   const [saving, setSaving] = useState(false)
+  const [transporterSource, setTransporterSource] = useState('own') // 'own' | 'directory'
+  const [directoryTransporters, setDirectoryTransporters] = useState([])
+  const [loadingDirectory, setLoadingDirectory] = useState(false)
   // Extra drop-offs beyond `form.destination` — a multi-stop run, one pickup → several
   // destinations for the same transporter (e.g. different crops to different distributors).
   const [extraStops, setExtraStops] = useState([])
@@ -83,6 +101,12 @@ export default function TransportRequests() {
       })
       .catch(() => setTransporters(MOCK_TRANSPORTERS))
       .finally(() => setLoadingTransporters(false))
+
+    setLoadingDirectory(true)
+    transportApi.searchTransporters()
+      .then(res => setDirectoryTransporters(res.data?.results ?? res.data ?? []))
+      .catch(() => setDirectoryTransporters([]))
+      .finally(() => setLoadingDirectory(false))
   }, [])
 
   const submitRequest = async (e) => {
@@ -129,12 +153,12 @@ export default function TransportRequests() {
     e.preventDefault()
     setSaving(true)
     try {
-      const res = await cooperativesApi.registerTransporter(tForm)
+      const res = await cooperativesApi.registerOwnDriver(tForm)
       const otp = res.data?.otp_code
       if (otp) {
-        toast.success(`Transporter registered! Share this OTP with them to activate: ${otp}`, { duration: 12000 })
+        toast.success(`Driver registered! Share this OTP with them to activate: ${otp}`, { duration: 12000 })
       } else {
-        toast.success('Transporter registered — OTP sent to activate their account')
+        toast.success('Driver registered — OTP sent to activate their account')
       }
       // Refresh transporters list
       const tRes = await cooperativesApi.getMyTransporters()
@@ -145,10 +169,40 @@ export default function TransportRequests() {
       const data = err.response?.data
       const msg = data
         ? Object.values(data).flat().join(' ')
-        : 'Failed to register transporter'
+        : 'Failed to register driver'
       toast.error(msg)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openVehicleForm = (transporter) => {
+    setVehicleTarget(transporter)
+    setVehicleForm(BLANK_VEHICLE)
+  }
+
+  const submitVehicle = async (e) => {
+    e.preventDefault()
+    setSavingVehicle(true)
+    try {
+      await transportApi.createVehicle({
+        transporter: vehicleTarget.id,
+        vehicle_type: vehicleForm.vehicle_type,
+        plate_number: vehicleForm.plate_number,
+        capacity_kg: Number(vehicleForm.capacity_kg),
+        operating_districts: vehicleForm.operating_districts
+          ? vehicleForm.operating_districts.split(',').map(s => s.trim()).filter(Boolean)
+          : (Array.isArray(vehicleTarget.operating_districts) ? vehicleTarget.operating_districts : []),
+      })
+      toast.success(`Vehicle added for ${tName(vehicleTarget)}`)
+      setVehicleTarget(null)
+      const tRes = await cooperativesApi.getMyTransporters()
+      setTransporters(tRes.data?.results ?? tRes.data ?? [])
+    } catch (err) {
+      const data = err.response?.data
+      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not add vehicle')
+    } finally {
+      setSavingVehicle(false)
     }
   }
 
@@ -163,11 +217,21 @@ export default function TransportRequests() {
     return String(r.transporter) === String(t.id) || r.transporter_name === tName(t)
   }).length
 
+  // How many times this cooperative has actually sent a request to a given independent
+  // transporter before — surfaced so "who I usually work with" doesn't require re-searching
+  // the whole directory every time.
+  const workedWithCountFor = (t) => requests.filter(r =>
+    String(r.transporter) === String(t.id) || r.transporter_name === tName(t)
+  ).length
+
   const startEditTransporter = (t) => {
+    const [first_name, ...rest] = tName(t).split(' ')
     setEditingTransporter(t)
     setEditTForm({
-      company_name: t.company_name || '',
-      operating_districts: tDistricts(t),
+      first_name: first_name || '', last_name: rest.join(' ') || '',
+      phone_number: t.phone_number || '', email: t.email || '',
+      base_location: t.base_location || '',
+      operating_districts: Array.isArray(t.operating_districts) ? t.operating_districts : [],
     })
     setShowEditTransporter(true)
   }
@@ -176,23 +240,35 @@ export default function TransportRequests() {
     e.preventDefault()
     setSaving(true)
     try {
-      const res = await cooperativesApi.updateTransporter(editingTransporter.id, {
-        company_name: editTForm.company_name,
-        operating_districts: editTForm.operating_districts,
-      })
-      setTransporters(prev => prev.map(t => t.id === editingTransporter.id ? res.data : t))
-      toast.success('Transporter updated')
-    } catch {
-      setTransporters(prev => prev.map(t => t.id === editingTransporter.id ? {
-        ...t,
-        company_name: editTForm.company_name,
-        operating_districts: editTForm.operating_districts.split(',').map(s => s.trim()).filter(Boolean),
-      } : t))
-      toast.success('Transporter updated')
-    } finally {
-      setSaving(false)
+      const res = await cooperativesApi.updateTransporter(editingTransporter.id, editTForm)
+      setTransporters(prev => prev.map(t => t.id === editingTransporter.id ? { ...t, ...res.data } : t))
+      toast.success('Driver updated')
       setShowEditTransporter(false)
       setEditingTransporter(null)
+    } catch (err) {
+      const data = err.response?.data
+      toast.error(data ? Object.values(data).flat().join(' ') : 'Could not update driver')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleSuspendTransporter = async (t) => {
+    setSuspendingId(t.id)
+    try {
+      if (t.is_active === false) {
+        const res = await cooperativesApi.updateTransporter(t.id, { is_active: true })
+        setTransporters(prev => prev.map(x => x.id === t.id ? { ...x, ...res.data } : x))
+        toast.success('Driver reactivated')
+      } else {
+        await cooperativesApi.deactivateTransporter(t.id)
+        setTransporters(prev => prev.map(x => x.id === t.id ? { ...x, is_active: false } : x))
+        toast.success('Driver suspended')
+      }
+    } catch {
+      toast.error('Could not update driver status')
+    } finally {
+      setSuspendingId(null)
     }
   }
 
@@ -218,16 +294,6 @@ export default function TransportRequests() {
     }
   }
 
-  const handleDeactivateTransporter = async (t) => {
-    if (!window.confirm(`Deactivate ${tName(t)}? They will no longer appear in your transporter list.`)) return
-    try {
-      await cooperativesApi.deactivateTransporter(t.id)
-    } catch {
-      // fallback silently
-    }
-    setTransporters(prev => prev.filter(x => x.id !== t.id))
-    toast.success('Transporter deactivated')
-  }
 
   const requestColumns = [
     { key: 'id', label: 'ID', render: v => <span className="font-mono text-sm">#{v}</span> },
@@ -271,7 +337,7 @@ export default function TransportRequests() {
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowRegister(true)} className="btn-secondary flex items-center gap-2">
-            <UserPlus className="w-4 h-4" /> Register Transporter
+            <UserPlus className="w-4 h-4" /> Register Driver
           </button>
           <button onClick={() => setShowNewRequest(true)} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> New Request
@@ -324,46 +390,58 @@ export default function TransportRequests() {
           ) : transporters.length === 0 ? (
             <div className="py-16 text-center">
               <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">No transporters registered yet</p>
-              <p className="text-gray-400 text-sm mt-1">Register transporters your cooperative works with.</p>
+              <p className="text-gray-500 font-medium">No drivers registered yet</p>
+              <p className="text-gray-400 text-sm mt-1">If your cooperative owns its own trucks, register a driver so they can run deliveries for you.</p>
               <button onClick={() => setShowRegister(true)} className="btn-primary mt-4 inline-flex items-center gap-2">
-                <UserPlus className="w-4 h-4" /> Register Transporter
+                <UserPlus className="w-4 h-4" /> Register Driver
               </button>
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {transporters.map(t => (
-                <div key={t.id} className="flex items-center justify-between px-5 py-4 hover:bg-gray-50">
+              {transporters.map(t => {
+                const vehicleCount = t.vehicles?.length || 0
+                return (
+                <div key={t.id} className={`flex items-center justify-between px-5 py-4 hover:bg-gray-50 ${t.is_active === false ? 'opacity-60' : ''}`}>
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center">
                       <Truck className="w-5 h-5 text-primary-500" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{tName(t)}</p>
-                      {t.company_name && <p className="text-xs text-gray-500">{t.company_name}</p>}
                       {tDistricts(t) && (
                         <p className="text-xs text-gray-400">{tDistricts(t)}</p>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {t.vehicles?.length > 0 && (
-                      <span className="text-xs text-gray-400">{t.vehicles.length} vehicle{t.vehicles.length !== 1 ? 's' : ''}</span>
+                    <span className="text-xs text-gray-400">{vehicleCount} vehicle{vehicleCount !== 1 ? 's' : ''}</span>
+                    {t.is_active !== false && vehicleCount === 0 && (
+                      <button onClick={() => openVehicleForm(t)}
+                        className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium px-2 py-1 rounded border border-primary-200 hover:bg-primary-50">
+                        <Plus className="w-3 h-3" /> Add Vehicle
+                      </button>
                     )}
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${t.is_active ? 'bg-success-50 text-success-500' : 'bg-gray-100 text-gray-400'}`}>
-                      {t.is_active ? 'Active' : 'Inactive'}
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${t.is_active !== false ? 'bg-success-50 text-success-500' : 'bg-danger-50 text-danger-700'}`}>
+                      {t.is_active !== false ? 'Active' : 'Suspended'}
                     </span>
                     <button onClick={() => startEditTransporter(t)}
                       className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-800 font-medium px-2 py-1 rounded hover:bg-primary-50">
                       <Pencil className="w-3 h-3" /> Edit
                     </button>
-                    <button onClick={() => handleDeactivateTransporter(t)}
-                      className="flex items-center gap-1 text-xs text-danger-500 hover:text-danger-700 font-medium px-2 py-1 rounded hover:bg-danger-50">
-                      <UserX className="w-3 h-3" /> Deactivate
+                    <button onClick={() => toggleSuspendTransporter(t)} disabled={suspendingId === t.id}
+                      className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded disabled:opacity-60 ${
+                        t.is_active === false
+                          ? 'text-success-600 hover:text-success-800 hover:bg-success-50'
+                          : 'text-danger-500 hover:text-danger-700 hover:bg-danger-50'
+                      }`}>
+                      {t.is_active === false
+                        ? <><RotateCcw className="w-3 h-3" /> Reactivate</>
+                        : <><UserX className="w-3 h-3" /> Suspend</>}
                     </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -374,6 +452,21 @@ export default function TransportRequests() {
         <form onSubmit={submitRequest} className="space-y-4">
           <div>
             <label className="label">Select transporter *</label>
+
+            {/* Own drivers vs. independent transport companies to hire */}
+            <div className="flex gap-1 mb-2 bg-gray-100 rounded-lg p-0.5 w-fit">
+              {[
+                { id: 'own', label: `My Drivers (${transporters.filter(t => t.is_active !== false).length})` },
+                { id: 'directory', label: `Independent (${directoryTransporters.length})` },
+              ].map(opt => (
+                <button key={opt.id} type="button" onClick={() => setTransporterSource(opt.id)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    transporterSource === opt.id ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
             <div className="relative mb-2">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
               <input
@@ -383,58 +476,114 @@ export default function TransportRequests() {
                 onChange={e => setTransporterSearch(e.target.value)}
               />
             </div>
-            {transporters.length === 0 ? (
-              <p className="text-xs text-warning-500">No transporters registered yet. <button type="button" onClick={() => { setShowNewRequest(false); setShowRegister(true) }} className="underline">Register one first.</button></p>
-            ) : (
-              <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
-                {transporters
-                  .filter(t => {
+
+            {transporterSource === 'own' ? (
+              transporters.length === 0 ? (
+                <p className="text-xs text-warning-500">No drivers registered yet. <button type="button" onClick={() => { setShowNewRequest(false); setShowRegister(true) }} className="underline">Register one first.</button></p>
+              ) : (
+                <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                  {transporters
+                    .filter(t => t.is_active !== false)
+                    .filter(t => {
+                      if (!transporterSearch.trim()) return true
+                      const q = transporterSearch.toLowerCase()
+                      return tName(t).toLowerCase().includes(q) || tDistricts(t).toLowerCase().includes(q)
+                    })
+                    .map(t => {
+                      const selected = String(form.transporter) === String(t.id)
+                      const activeCount = activeCountFor(t)
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, transporter: t.id }))}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${selected ? 'bg-primary-100' : 'bg-gray-100'}`}>
+                            <Truck className={`w-4 h-4 ${selected ? 'text-primary-600' : 'text-gray-400'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-medium truncate ${selected ? 'text-primary-700' : 'text-gray-900'}`}>{tName(t)}</p>
+                            <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                              <MapPin className="w-3 h-3 flex-shrink-0" />
+                              {tDistricts(t) || 'No districts listed'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {activeCount > 0
+                              ? <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-50 text-warning-600">{activeCount} active</span>
+                              : <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-50 text-success-600">Free</span>
+                            }
+                            {selected && <span className="text-primary-600 text-xs font-medium">Selected</span>}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  {transporters.filter(t => {
                     if (!transporterSearch.trim()) return true
                     const q = transporterSearch.toLowerCase()
-                    return (
-                      tName(t).toLowerCase().includes(q) ||
-                      (t.company_name || '').toLowerCase().includes(q) ||
-                      tDistricts(t).toLowerCase().includes(q)
-                    )
-                  })
-                  .map(t => {
-                    const selected = String(form.transporter) === String(t.id)
-                    const activeCount = activeCountFor(t)
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setForm(f => ({ ...f, transporter: t.id }))}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${selected ? 'bg-primary-100' : 'bg-gray-100'}`}>
-                          <Truck className={`w-4 h-4 ${selected ? 'text-primary-600' : 'text-gray-400'}`} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${selected ? 'text-primary-700' : 'text-gray-900'}`}>{tName(t)}</p>
-                          <p className="text-xs text-gray-400 truncate flex items-center gap-1">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            {tDistricts(t) || t.company_name || 'No districts listed'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {activeCount > 0
-                            ? <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-50 text-warning-600">{activeCount} active</span>
-                            : <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-50 text-success-600">Free</span>
-                          }
-                          {selected && <span className="text-primary-600 text-xs font-medium">Selected</span>}
-                        </div>
-                      </button>
-                    )
-                  })}
-                {transporters.filter(t => {
-                  if (!transporterSearch.trim()) return true
-                  const q = transporterSearch.toLowerCase()
-                  return tName(t).toLowerCase().includes(q) || (t.company_name || '').toLowerCase().includes(q) || tDistricts(t).toLowerCase().includes(q)
-                }).length === 0 && (
-                  <p className="text-center text-sm text-gray-400 py-4">No transporters match "{transporterSearch}"</p>
-                )}
-              </div>
+                    return tName(t).toLowerCase().includes(q) || tDistricts(t).toLowerCase().includes(q)
+                  }).length === 0 && (
+                    <p className="text-center text-sm text-gray-400 py-4">No drivers match "{transporterSearch}"</p>
+                  )}
+                </div>
+              )
+            ) : (
+              loadingDirectory ? (
+                <div className="py-6 text-center text-gray-400 text-sm">Loading independent transporters…</div>
+              ) : directoryTransporters.length === 0 ? (
+                <p className="text-xs text-gray-400">No independent transport companies available right now.</p>
+              ) : (
+                <div className="border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                  {directoryTransporters
+                    .filter(t => {
+                      if (!transporterSearch.trim()) return true
+                      const q = transporterSearch.toLowerCase()
+                      return tName(t).toLowerCase().includes(q) || tDistricts(t).toLowerCase().includes(q)
+                    })
+                    .map(t => ({ t, workedWith: workedWithCountFor(t) }))
+                    .sort((a, b) => b.workedWith - a.workedWith)
+                    .map(({ t, workedWith }) => {
+                      const selected = String(form.transporter) === String(t.id)
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, transporter: t.id }))}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${selected ? 'bg-primary-50' : 'hover:bg-gray-50'}`}
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${selected ? 'bg-primary-100' : 'bg-gray-100'}`}>
+                            <Truck className={`w-4 h-4 ${selected ? 'text-primary-600' : 'text-gray-400'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className={`text-sm font-medium truncate ${selected ? 'text-primary-700' : 'text-gray-900'}`}>{tName(t)}</p>
+                              {workedWith > 0 && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 border border-primary-200 flex items-center gap-0.5 flex-shrink-0">
+                                  <Star className="w-2.5 h-2.5 fill-primary-500 text-primary-500" /> Worked with before
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-400 truncate flex items-center gap-1">
+                              <MapPin className="w-3 h-3 flex-shrink-0" />
+                              {tDistricts(t) || 'No districts listed'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {t.average_rating != null ? (
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning-50 text-warning-600 flex items-center gap-0.5">
+                                <Star className="w-3 h-3 fill-warning-400 text-warning-400" /> {t.average_rating} ({t.rating_count})
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">Not yet rated</span>
+                            )}
+                            {selected && <span className="text-primary-600 text-xs font-medium">Selected</span>}
+                          </div>
+                        </button>
+                      )
+                    })}
+                </div>
+              )
             )}
           </div>
           <div>
@@ -444,7 +593,7 @@ export default function TransportRequests() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Estimated weight (kg)</label>
-              <input type="number" className="input" value={form.estimated_cargo_weight_kg} onChange={e => setForm(f => ({ ...f, estimated_cargo_weight_kg: e.target.value }))} required min="1" />
+              <input type="number" className="input" value={form.estimated_cargo_weight_kg} onChange={e => setForm(f => ({ ...f, estimated_cargo_weight_kg: e.target.value }))} required min="0.01" step="0.01" />
             </div>
             <div>
               <label className="label">Required pickup date</label>
@@ -501,7 +650,7 @@ export default function TransportRequests() {
               <div className="grid grid-cols-2 gap-3">
                 <input className="input" required placeholder="Cargo description"
                   value={stop.cargo_description} onChange={e => updateStop(i, 'cargo_description', e.target.value)} />
-                <input type="number" className="input" required min="1" placeholder="Weight (kg)"
+                <input type="number" className="input" required min="0.01" step="0.01" placeholder="Weight (kg)"
                   value={stop.estimated_cargo_weight_kg} onChange={e => updateStop(i, 'estimated_cargo_weight_kg', e.target.value)} />
               </div>
             </div>
@@ -532,17 +681,35 @@ export default function TransportRequests() {
       <Modal isOpen={showEditTransporter} onClose={() => { setShowEditTransporter(false); setEditingTransporter(null) }}
         title={`Edit — ${editingTransporter ? tName(editingTransporter) : ''}`}>
         <form onSubmit={handleEditTransporter} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="label">First name *</label>
+              <input className="input" required value={editTForm.first_name}
+                onChange={e => setEditTForm(f => ({ ...f, first_name: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Last name *</label>
+              <input className="input" required value={editTForm.last_name}
+                onChange={e => setEditTForm(f => ({ ...f, last_name: e.target.value }))} />
+            </div>
+          </div>
           <div>
-            <label className="label">Company / business name</label>
-            <input className="input" value={editTForm.company_name}
-              onChange={e => setEditTForm(f => ({ ...f, company_name: e.target.value }))}
-              placeholder="e.g. Kabuye Transport Ltd" />
+            <label className="label">Phone number *</label>
+            <input className="input" required value={editTForm.phone_number}
+              onChange={e => setEditTForm(f => ({ ...f, phone_number: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Email</label>
+            <input type="email" className="input" value={editTForm.email}
+              onChange={e => setEditTForm(f => ({ ...f, email: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Base location</label>
+            <LocationSelect value={editTForm.base_location} onChange={val => setEditTForm(f => ({ ...f, base_location: val }))} placeholder="Select base district…" />
           </div>
           <div>
             <label className="label">Operating districts</label>
-            <input className="input" value={editTForm.operating_districts}
-              onChange={e => setEditTForm(f => ({ ...f, operating_districts: e.target.value }))}
-              placeholder="e.g. Musanze, Kigali" />
+            <DistrictPicker value={editTForm.operating_districts} onChange={val => setEditTForm(f => ({ ...f, operating_districts: val }))} />
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => { setShowEditTransporter(false); setEditingTransporter(null) }}
@@ -555,10 +722,10 @@ export default function TransportRequests() {
         </form>
       </Modal>
 
-      {/* Register Transporter modal */}
-      <Modal isOpen={showRegister} onClose={() => setShowRegister(false)} title="Register Transporter">
+      {/* Register Driver modal */}
+      <Modal isOpen={showRegister} onClose={() => setShowRegister(false)} title="Register Driver">
         <form onSubmit={submitRegister} className="space-y-4">
-          <p className="text-sm text-gray-500">Register a transporter your cooperative works with. They will receive an OTP to activate their account.</p>
+          <p className="text-sm text-gray-500">If your cooperative owns its own trucks, register a driver to run deliveries for you. They'll get their own login and an OTP to activate their account — you can assign them a vehicle right after.</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">First name *</label>
@@ -575,11 +742,7 @@ export default function TransportRequests() {
           </div>
           <div>
             <label className="label">Email (for OTP)</label>
-            <input type="email" className="input" value={tForm.email} onChange={e => setTForm(f => ({ ...f, email: e.target.value }))} placeholder="transporter@example.com" />
-          </div>
-          <div>
-            <label className="label">Company / business name</label>
-            <input className="input" value={tForm.company_name} onChange={e => setTForm(f => ({ ...f, company_name: e.target.value }))} placeholder="e.g. Kabuye Transport Ltd" />
+            <input type="email" className="input" value={tForm.email} onChange={e => setTForm(f => ({ ...f, email: e.target.value }))} placeholder="driver@example.com" />
           </div>
           <div>
             <label className="label">Operating districts</label>
@@ -590,7 +753,7 @@ export default function TransportRequests() {
             <button type="button" onClick={() => setShowRegister(false)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
               {saving && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              {saving ? 'Registering…' : 'Register Transporter'}
+              {saving ? 'Registering…' : 'Register Driver'}
             </button>
           </div>
         </form>
@@ -624,6 +787,53 @@ export default function TransportRequests() {
               <button type="submit" disabled={submittingRating} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
                 {submittingRating && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {submittingRating ? 'Submitting…' : 'Submit Rating'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Add Vehicle modal — for a driver who hasn't registered one yet */}
+      <Modal isOpen={!!vehicleTarget} onClose={() => setVehicleTarget(null)} title={vehicleTarget ? `Add Vehicle for ${tName(vehicleTarget)}` : 'Add Vehicle'}>
+        {vehicleTarget && (
+          <form onSubmit={submitVehicle} className="space-y-4">
+            <p className="text-sm text-gray-500">
+              They haven't added a vehicle yet — register one of the cooperative's trucks on their behalf so they can start accepting jobs right away.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Vehicle type *</label>
+                <select className="input" value={vehicleForm.vehicle_type}
+                  onChange={e => setVehicleForm(f => ({ ...f, vehicle_type: e.target.value }))}>
+                  {Object.entries(VEHICLE_TYPE_LABELS).map(([k, label]) => (
+                    <option key={k} value={k}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Plate number *</label>
+                <input className="input" required placeholder="e.g. RAD 123 A" value={vehicleForm.plate_number}
+                  onChange={e => setVehicleForm(f => ({ ...f, plate_number: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Capacity (kg) *</label>
+              <input type="number" className="input" required min="0.01" step="0.01" value={vehicleForm.capacity_kg}
+                onChange={e => setVehicleForm(f => ({ ...f, capacity_kg: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Operating districts</label>
+              <DistrictPicker
+                value={vehicleForm.operating_districts ? vehicleForm.operating_districts.split(',').map(s => s.trim()).filter(Boolean) : (Array.isArray(vehicleTarget.operating_districts) ? vehicleTarget.operating_districts : [])}
+                onChange={val => setVehicleForm(f => ({ ...f, operating_districts: val.join(', ') }))}
+              />
+              <p className="text-xs text-gray-400 mt-1">Defaults to {tName(vehicleTarget)}'s own districts if left unchanged.</p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setVehicleTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={savingVehicle} className="btn-primary flex-1 disabled:opacity-60 flex items-center justify-center gap-2">
+                {savingVehicle && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                {savingVehicle ? 'Adding…' : 'Add Vehicle'}
               </button>
             </div>
           </form>

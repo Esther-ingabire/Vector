@@ -3,7 +3,7 @@ import {
   Package, Layers, Truck, TrendingUp, TrendingDown, ClipboardList,
   BarChart2, Trash2, CheckCircle, Globe, MapPin, Leaf,
   Activity, Download, Loader, FileText, Users, Warehouse, Inbox,
-  Calendar,
+  Calendar, Send, AlertTriangle, LineChart,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext.jsx'
@@ -20,7 +20,10 @@ const PERIODS = [
 
 function getPeriodDates(periodId, customFrom, customTo) {
   const today = new Date()
-  const fmt = d => d.toISOString().slice(0, 10)
+  // Local calendar date, not toISOString()'s UTC date — the backend interprets these
+  // strings as Africa/Kigali calendar days, so formatting via UTC shifts the window by
+  // hours (sometimes a whole day) and silently drops today's records near midnight.
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   if (periodId === 'today') {
     const t = fmt(today)
     return { date_from: t, date_to: t }
@@ -47,7 +50,7 @@ const CATALOG = {
     {
       type: 'complete',
       name: 'Complete Activity Report',
-      desc: 'Every batch from dispatch through transport, distributor receipt, and market handover — the full traceability picture in one report.',
+      desc: 'Every batch from dispatch through transport, distributor receipt, and market handover, plus produce requests received from distributors and pre-dispatch waste — everything this account has done, in one report.',
       filename: 'cooperative_complete_report.csv',
       icon: FileText,
       color: 'text-violet-600',
@@ -80,13 +83,22 @@ const CATALOG = {
       color: 'text-orange-600',
       bg: 'bg-orange-50',
     },
+    {
+      type: 'waste',
+      name: 'Pre-Dispatch Waste Report',
+      desc: 'Produce that spoiled or was discarded before it was ever dispatched — per crop, quantities and loss percentage.',
+      filename: 'cooperative_waste_report.csv',
+      icon: Trash2,
+      color: 'text-danger-600',
+      bg: 'bg-danger-50',
+    },
   ],
 
   TRANSPORTER: [
     {
       type: 'complete',
       name: 'Complete Activity Report',
-      desc: 'Every job — requester, vehicle, actual pickup/delivery times, transit hours, and incidents — plus a per-route performance summary, all in one report.',
+      desc: 'Every job — requester, vehicle, pickup/delivery times, transit hours — plus per-route performance, incidents reported, and (for companies) your driver roster, all in one report.',
       filename: 'transporter_complete_report.csv',
       icon: FileText,
       color: 'text-violet-600',
@@ -94,8 +106,8 @@ const CATALOG = {
     },
     {
       type: 'jobs',
-      name: 'Transport Jobs Report',
-      desc: 'All transport jobs — routes, cargo, scheduled vs actual pickup and delivery times.',
+      name: 'Trip History (Transport Jobs Report)',
+      desc: 'Every job you\'ve run — routes, cargo, scheduled vs actual pickup and delivery times, and status.',
       filename: 'transporter_jobs_report.csv',
       icon: Truck,
       color: 'text-primary-600',
@@ -116,7 +128,7 @@ const CATALOG = {
     {
       type: 'complete',
       name: 'Complete Activity Report',
-      desc: 'Every order — crop origin cooperative, market agent, delivery method, collection results, and status — in one report.',
+      desc: 'Everything this account has done in one file: orders to market agents, produce requests sent to cooperatives, confirmed batch receipts, and any mismatches reported.',
       filename: 'distributor_complete_report.csv',
       icon: FileText,
       color: 'text-violet-600',
@@ -132,13 +144,41 @@ const CATALOG = {
       bg: 'bg-primary-50',
     },
     {
+      type: 'requests',
+      name: 'Produce Requests Report',
+      desc: 'Requests you sent to cooperatives — crop, quantity, delivery method, and how each was resolved.',
+      filename: 'distributor_produce_requests_report.csv',
+      icon: Send,
+      color: 'text-primary-600',
+      bg: 'bg-primary-50',
+    },
+    {
+      type: 'receipts',
+      name: 'Confirmed Receipts Report',
+      desc: 'Batches you have confirmed receipt of — dispatched vs received quantity, quality, and transit loss.',
+      filename: 'distributor_receipts_report.csv',
+      icon: CheckCircle,
+      color: 'text-success-600',
+      bg: 'bg-success-50',
+    },
+    {
+      type: 'mismatches',
+      name: 'Mismatches Reported',
+      desc: 'Batches where what arrived did not match what was dispatched, and what you reported to the cooperative.',
+      filename: 'distributor_mismatches_report.csv',
+      icon: AlertTriangle,
+      color: 'text-warning-600',
+      bg: 'bg-warning-50',
+    },
+    {
       type: 'delivery-comparison',
       name: 'Delivery Method Comparison',
-      desc: 'Self-collection vs transporter delivery — order counts, volumes, and completion rates.',
+      desc: 'Self-collection vs transporter delivery — order counts, volumes, and completion rates. PDF includes a loss-rate chart.',
       filename: 'distributor_delivery_comparison_report.csv',
       icon: BarChart2,
       color: 'text-indigo-600',
       bg: 'bg-indigo-50',
+      analytical: true,
     },
     {
       type: 'waste',
@@ -155,7 +195,7 @@ const CATALOG = {
     {
       type: 'complete',
       name: 'Complete Activity Report',
-      desc: 'Every collection — crop, distributor, price, collected/arrived quantities, loss, and order status — in one report.',
+      desc: 'Every collection — crop, distributor, price, collected/arrived quantities, loss, and order status — plus every waste report you\'ve submitted, in one report.',
       filename: 'market_agent_complete_report.csv',
       icon: FileText,
       color: 'text-violet-600',
@@ -236,13 +276,33 @@ const CATALOG = {
       color: 'text-orange-600',
       bg: 'bg-orange-50',
     },
+    {
+      type: 'waste',
+      name: 'National Waste & Spoilage Report',
+      desc: 'Every waste report across all three stages — cooperative pre-dispatch, distributor warehouse, and market agent stall — in one export.',
+      filename: 'national_waste_report.csv',
+      icon: Trash2,
+      color: 'text-danger-600',
+      bg: 'bg-danger-50',
+    },
   ],
 }
 
 CATALOG.TRANSPORT_COMPANY = CATALOG.TRANSPORTER
 
 CATALOG.ADMIN = [
-  ...CATALOG.MINAGRI_OFFICER,
+  // Admin's own "complete" report (account/system administration) replaces MINAGRI's
+  // national supply-chain one — same report_type key, different backend handler per role.
+  {
+    type: 'complete',
+    name: 'Complete Activity Report',
+    desc: 'Everything under account/system administration: every user, the registration request queue with review outcomes, and feedback & support submissions.',
+    filename: 'admin_complete_report.csv',
+    icon: FileText,
+    color: 'text-violet-600',
+    bg: 'bg-violet-50',
+  },
+  ...CATALOG.MINAGRI_OFFICER.filter(r => r.type !== 'complete'),
   {
     type: 'users',
     name: 'System Users Report',
@@ -258,7 +318,7 @@ CATALOG.WAREHOUSE_MANAGER = [
   {
     type: 'complete',
     name: 'Complete Activity Report',
-    desc: 'Every rental request with full facility specs — capacity, IoT sensor, cold-chain thresholds — in one report.',
+    desc: 'Every facility you manage — capacity, IoT sensor, cold-chain thresholds — plus every rental request against them, in one report.',
     filename: 'warehouse_complete_report.csv',
     icon: FileText,
     color: 'text-violet-600',
@@ -401,7 +461,14 @@ export default function RoleReportsPage() {
                     <Icon className={`w-5 h-5 ${report.color}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm">{report.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900 text-sm">{report.name}</p>
+                      {report.analytical && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                          <LineChart className="w-2.5 h-2.5" /> Analytical
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 mt-1 leading-relaxed">{report.desc}</p>
                   </div>
                 </div>

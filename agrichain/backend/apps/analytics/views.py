@@ -11,6 +11,17 @@ from .serializers import (
 )
 from apps.authentication.permissions import IsAnalyticsRole
 
+# Imported once at process start rather than inside the request handler — sklearn's
+# first import pulls in scipy/numpy's compiled submodules and costs 10+ seconds, which
+# used to land on whichever request happened to hit the loss-trend endpoint first on a
+# freshly-started worker.
+try:
+    import numpy as np
+    from sklearn.linear_model import LinearRegression
+except ImportError:
+    np = None
+    LinearRegression = None
+
 
 class NationalKPIViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = NationalDailyKPISerializer
@@ -247,27 +258,35 @@ class MinagriDistrictPerformanceView(_MinagriBase):
             .order_by('-avg_loss')
         )
 
+        # One grouped query for crop counts across all districts, instead of a
+        # separate top-crop query per district (was an N+1 — the main cost behind
+        # this page's slow "sync", since it loads alongside the loss trend).
+        top_crop_by_district = {}
+        for row in (
+            Batch.objects.filter(cooperative__district__isnull=False)
+            .values('cooperative__district', 'crop__name')
+            .annotate(cnt=Count('id'))
+        ):
+            district = row['cooperative__district']
+            best = top_crop_by_district.get(district)
+            if best is None or row['cnt'] > best[1]:
+                top_crop_by_district[district] = (row['crop__name'], row['cnt'])
+
         results = []
         for d in district_data:
             district = d['cooperative__district']
             if not district:
                 continue
-            top_crop = (
-                Batch.objects.filter(cooperative__district=district)
-                .values('crop__name')
-                .annotate(cnt=Count('id'))
-                .order_by('-cnt')
-                .first()
-            )
             loss_pct = float(d['avg_loss'] or 0)
             status_label = 'HIGH' if loss_pct >= 12 else ('MEDIUM' if loss_pct >= 7 else 'LOW')
             compliance = max(60, 95 - int(loss_pct) * 2)
+            top_crop = top_crop_by_district.get(district)
             results.append({
                 'district': district,
                 'loss_pct': round(loss_pct, 1),
                 'volume_tons': round(float(d['volume_kg'] or 0) / 1000, 1),
                 'batch_count': d['batch_count'],
-                'top_crop': top_crop['crop__name'] if top_crop else 'N/A',
+                'top_crop': top_crop[0] if top_crop else 'N/A',
                 'status': status_label,
                 'cold_chain_compliance': compliance,
             })
@@ -369,6 +388,7 @@ class MinagriLossTrendView(_MinagriBase):
     def get(self, request):
         from apps.traceability.models import Batch
         from django.db.models import Avg
+        from django.db.models.functions import TruncMonth
         from django.utils import timezone
         from datetime import timedelta
 
@@ -385,36 +405,47 @@ class MinagriLossTrendView(_MinagriBase):
         loss_field = STAGE_FIELD.get(stage.lower(), 'total_loss_pct')
 
         now = timezone.now()
-        months, actuals = [], []
+        month_starts = []
         for i in range(5, -1, -1):
             anchor = now - timedelta(days=i * 30)
-            m_start = anchor.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            m_end = (m_start + timedelta(days=32)).replace(day=1)
-            qs = Batch.objects.filter(
-                dispatch_timestamp__gte=m_start,
-                dispatch_timestamp__lt=m_end,
-                **{f'{loss_field}__isnull': False},
+            month_starts.append(anchor.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
+
+        # Single grouped query across the whole 6-month window instead of one
+        # query per month (was the main cost behind this page's slow "sync").
+        range_start = month_starts[0]
+        range_end = (month_starts[-1] + timedelta(days=32)).replace(day=1)
+        qs = Batch.objects.filter(
+            dispatch_timestamp__gte=range_start,
+            dispatch_timestamp__lt=range_end,
+            **{f'{loss_field}__isnull': False},
+        )
+        if district:
+            qs = qs.filter(cooperative__district__iexact=district)
+        if crop:
+            qs = qs.filter(crop__name__iexact=crop)
+
+        by_month = {
+            row['month'].strftime('%Y-%m'): float(row['avg'] or 0)
+            for row in (
+                qs.annotate(month=TruncMonth('dispatch_timestamp'))
+                  .values('month')
+                  .annotate(avg=Avg(loss_field))
             )
-            if district:
-                qs = qs.filter(cooperative__district__iexact=district)
-            if crop:
-                qs = qs.filter(crop__name__iexact=crop)
-            avg = qs.aggregate(avg=Avg(loss_field))['avg']
+        }
+
+        months, actuals = [], []
+        for m_start in month_starts:
             months.append(m_start.strftime('%b'))
-            actuals.append(round(float(avg or 0), 2))
+            actuals.append(round(by_month.get(m_start.strftime('%Y-%m'), 0.0), 2))
 
         predicted = actuals[:]
-        try:
-            import numpy as np
-            from sklearn.linear_model import LinearRegression
+        if LinearRegression is not None:
             non_zero = [(i, v) for i, v in enumerate(actuals) if v > 0]
             if len(non_zero) >= 2:
                 X = np.array([p[0] for p in non_zero]).reshape(-1, 1)
                 y = np.array([p[1] for p in non_zero])
                 model = LinearRegression().fit(X, y)
                 predicted = [round(max(0.0, float(model.predict([[i]])[0])), 2) for i in range(6)]
-        except ImportError:
-            pass
 
         return Response({'months': months, 'actual': actuals, 'predicted': predicted})
 
@@ -434,8 +465,9 @@ class MinagriBottleneckView(_MinagriBase):
 
     def get(self, request):
         from apps.transport.models import Trip, IncidentReport
-        from apps.cooperatives.models import Cooperative, Crop, ColdStorageFacility, CooperativeStock
+        from apps.cooperatives.models import Cooperative, Crop, ColdStorageFacility, CooperativeStock, CooperativeWasteReport
         from apps.distribution.models import Distributor, CollectionNotice, DistributorWasteReport
+        from apps.market_agents.models import WasteReport as MarketAgentWasteReport
         from apps.iot.models import IoTReading
         from django.db.models import Sum, Min, Q
         from django.utils import timezone
@@ -672,25 +704,56 @@ class MinagriBottleneckView(_MinagriBase):
         for stage in ('STORAGE', 'DISPATCH', 'MARKET', 'COLD_CHAIN'):
             stage_summary[stage] = sum(1 for b in system_bottlenecks if b['stage'] == stage)
 
-        # ── MARKET root causes: why produce ends up discarded at the distributor stage ──
-        MARKET_CAUSE_META = {
-            'NO_DEMAND': ('No demand',        'Notices nobody ordered before the collection deadline'),
-            'SPOILAGE':  ('Spoilage',         'Natural deterioration while awaiting collection'),
-            'DAMAGE':    ('Handling damage',  'Physical/handling damage in the distributor warehouse'),
-            'OTHER':     ('Other',            'See distributor notes'),
+        # ── DISPATCH root causes: why produce ends up discarded before ever leaving the
+        # cooperative (CooperativeWasteReport — the pre-dispatch stage) ──
+        DISPATCH_CAUSE_META = {
+            'NO_DEMAND': ('No demand',        'Not requested by distributors before it spoiled'),
+            'SPOILAGE':  ('Spoilage',         'Natural deterioration while awaiting dispatch'),
+            'DAMAGE':    ('Handling damage',  'Physical/handling damage in cooperative storage'),
+            'OTHER':     ('Other',            'See cooperative notes'),
         }
-        market_reason_qs = (
-            DistributorWasteReport.objects.order_by()
+        dispatch_reason_qs = (
+            CooperativeWasteReport.objects.order_by()
             .values('discard_reason').annotate(qty=Sum('quantity_discarded_kg'))
         )
-        total_discarded_kg = sum(float(r['qty'] or 0) for r in market_reason_qs)
-        market_root_causes = []
-        if total_discarded_kg > 0:
-            for row in sorted(market_reason_qs, key=lambda r: -(r['qty'] or 0)):
+        total_dispatch_discarded_kg = sum(float(r['qty'] or 0) for r in dispatch_reason_qs)
+        dispatch_root_causes = []
+        if total_dispatch_discarded_kg > 0:
+            for row in sorted(dispatch_reason_qs, key=lambda r: -(r['qty'] or 0)):
                 qty = float(row['qty'] or 0)
                 if qty <= 0:
                     continue
-                label, detail = MARKET_CAUSE_META.get(row['discard_reason'], (row['discard_reason'].title(), ''))
+                label, detail = DISPATCH_CAUSE_META.get(row['discard_reason'], (row['discard_reason'].title(), ''))
+                dispatch_root_causes.append({
+                    'label': label,
+                    'detail': detail,
+                    'pct': round(qty / total_dispatch_discarded_kg * 100),
+                })
+
+        # ── MARKET root causes: why produce ends up discarded after leaving the cooperative —
+        # combines the distributor warehouse stage AND the market agent stall stage, since both
+        # represent the same "after dispatch, before the consumer" part of the chain ──
+        MARKET_CAUSE_META = {
+            'NO_DEMAND': ('No demand',        'Notices nobody ordered before the collection deadline'),
+            'SPOILAGE':  ('Spoilage',         'Natural deterioration while awaiting collection'),
+            'DAMAGE':    ('Handling damage',  'Physical/handling damage in the distributor warehouse or at the market stall'),
+            'OTHER':     ('Other',            'See distributor/market agent notes'),
+        }
+        market_qty_by_reason = {}
+        for row in (DistributorWasteReport.objects.order_by()
+                    .values('discard_reason').annotate(qty=Sum('quantity_discarded_kg'))):
+            market_qty_by_reason[row['discard_reason']] = market_qty_by_reason.get(row['discard_reason'], 0) + float(row['qty'] or 0)
+        for row in (MarketAgentWasteReport.objects.order_by()
+                    .values('discard_reason').annotate(qty=Sum('quantity_discarded_kg'))):
+            market_qty_by_reason[row['discard_reason']] = market_qty_by_reason.get(row['discard_reason'], 0) + float(row['qty'] or 0)
+
+        total_discarded_kg = sum(market_qty_by_reason.values())
+        market_root_causes = []
+        if total_discarded_kg > 0:
+            for reason, qty in sorted(market_qty_by_reason.items(), key=lambda x: -x[1]):
+                if qty <= 0:
+                    continue
+                label, detail = MARKET_CAUSE_META.get(reason, (reason.title(), ''))
                 market_root_causes.append({
                     'label': label,
                     'detail': detail,
@@ -721,6 +784,7 @@ class MinagriBottleneckView(_MinagriBase):
         return Response({
             'hotspots': hotspots[:6],
             'root_causes': root_causes,
+            'dispatch_root_causes': dispatch_root_causes,
             'market_root_causes': market_root_causes,
             'coldchain_root_causes': coldchain_root_causes,
             'monthly_delays': {'months': months, 'delays': delays_trend},
@@ -799,26 +863,31 @@ class MinagriChatView(_MinagriBase):
 
     # ── routing ──────────────────────────────────────────────────────────────
 
+    # Each topic requires at least one of these keywords to appear — trimmed to
+    # domain-specific words/phrases so an unrelated or nonsensical question doesn't
+    # false-positive-match on a common English word (e.g. bare "area", "help", "how
+    # much", "pattern") and get routed to a confident-looking but wrong DB answer
+    # instead of falling through to the actual "I don't understand" fallback.
     def _route(self, q):
-        if any(k in q for k in ['district', 'region', 'province', 'area', 'where', 'location', 'kigali', 'northern', 'southern', 'eastern', 'western']):
+        if any(k in q for k in ['district', 'province', 'kigali', 'northern province', 'southern province', 'eastern province', 'western province']):
             return self._districts()
         if any(k in q for k in ['crop', 'produce', 'commodity', 'tomato', 'potato', 'maize', 'bean', 'banana', 'coffee', 'vegetable']):
             return self._crops()
-        if any(k in q for k in ['cold chain', 'temperature', 'refrigerat', 'storage', 'warehouse']):
+        if any(k in q for k in ['cold chain', 'temperature', 'refrigerat', 'cold storage']):
             return self._cold_chain()
-        if any(k in q for k in ['alert', 'critical', 'warning', 'urgent', 'risk']):
+        if any(k in q for k in ['alert', 'critical risk', 'urgent', 'risk flag', 'active risk']):
             return self._alerts()
-        if any(k in q for k in ['cooperative', 'coop', 'ranking', 'best performing', 'worst', 'organisation', 'organization']):
+        if any(k in q for k in ['cooperative', 'coop ', 'coops', 'best performing', 'worst performing']):
             return self._rankings()
-        if any(k in q for k in ['loss', 'waste', 'spoilage', 'damage', 'transit loss', 'post-harvest']):
+        if any(k in q for k in ['loss', 'waste', 'spoilage', 'post-harvest', 'transit loss']):
             return self._losses()
-        if any(k in q for k in ['volume', 'batch', 'dispatch', 'ton', 'kg', 'how much', 'quantity']):
+        if any(k in q for k in ['volume', 'batch', 'dispatch', 'tons dispatched', 'quantity dispatched']):
             return self._volume()
-        if any(k in q for k in ['trend', 'month', 'over time', 'history', 'pattern', 'changing', 'compare']):
+        if any(k in q for k in ['trend', 'over time', 'loss history', 'changing over', 'compare month']):
             return self._trend()
-        if any(k in q for k in ['recommend', 'suggest', 'what should', 'advice', 'improve', 'action', 'what can', 'help']):
+        if any(k in q for k in ['recommend', 'suggest', 'what should i', 'what should we', 'advice', 'how can we improve', 'how do we reduce']):
             return self._recommendations()
-        if any(k in q for k in ['transporter', 'transport', 'driver', 'delivery', 'vehicle', 'fleet']):
+        if any(k in q for k in ['transporter', 'transport request', 'transport job', 'driver', 'delivery vehicle', 'fleet']):
             return self._transport()
         if any(k in q for k in ['hi', 'hello', 'hey', 'good morning', 'good afternoon']):
             return ("Hello! I'm the ChainSight AI Assistant for MINAGRI. I can answer questions about "
@@ -1004,7 +1073,7 @@ class MinagriChatView(_MinagriBase):
         stale = TransportRequest.objects.filter(
             status='PENDING', created_at__lt=timezone.now() - timedelta(hours=24)
         ).count()
-        completed_trips = Trip.objects.filter(status='COMPLETED').count()
+        completed_trips = Trip.objects.filter(delivery_confirmed_at__isnull=False).count()
         return (
             f"**Transport Overview**\n\n"
             f"• Total transport requests: **{total}**\n"

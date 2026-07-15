@@ -12,6 +12,7 @@ router.register(r'waste-reports', views.DistributorWasteReportViewSet, basename=
 
 urlpatterns = [
     path('register-own-driver/', views.register_own_driver, name='register-own-driver'),
+    path('my-transporters/<int:pk>/', views.manage_transporter, name='manage-transporter'),
     path('', include(router.urls)),
     # Market agent link management (distributor side)
     path('market-agents/', views.MarketAgentListView.as_view()),

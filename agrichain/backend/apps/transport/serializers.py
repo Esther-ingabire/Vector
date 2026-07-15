@@ -40,12 +40,16 @@ class TransporterSerializer(serializers.ModelSerializer):
 class DriverSerializer(TransporterSerializer):
     """A Transporter that is a driver registered under a Transport Company account."""
     has_active_trip = serializers.SerializerMethodField()
+    has_logged_in = serializers.SerializerMethodField()
 
     class Meta(TransporterSerializer.Meta):
-        fields = TransporterSerializer.Meta.fields + ['has_active_trip']
+        fields = TransporterSerializer.Meta.fields + ['has_active_trip', 'has_logged_in']
 
     def get_has_active_trip(self, obj):
         return obj.transport_requests.filter(status__in=['ACCEPTED', 'IN_PROGRESS']).exists()
+
+    def get_has_logged_in(self, obj):
+        return obj.user.last_login is not None
 
 
 class IncidentReportSerializer(serializers.ModelSerializer):
@@ -90,12 +94,15 @@ class GPSTrackSerializer(serializers.ModelSerializer):
 class TripSerializer(serializers.ModelSerializer):
     gps_tracks = GPSTrackSerializer(many=True, read_only=True)
     transit_duration_hours = serializers.FloatField(read_only=True)
+    condition_on_arrival_display = serializers.CharField(source='get_condition_on_arrival_display', read_only=True, default=None)
 
     class Meta:
         model = Trip
         fields = ['id', 'transport_request', 'actual_pickup_datetime',
                   'actual_delivery_datetime', 'pickup_confirmed_at',
                   'delivery_confirmed_at', 'delivery_notes', 'created_at',
+                  'recipient_name', 'condition_on_arrival', 'condition_on_arrival_display',
+                  'delivery_gps_lat', 'delivery_gps_lng', 'delivery_photo',
                   'gps_tracks', 'transit_duration_hours']
         read_only_fields = ['id', 'created_at']
 

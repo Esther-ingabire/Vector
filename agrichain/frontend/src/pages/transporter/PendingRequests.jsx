@@ -33,7 +33,7 @@ function AssignDriverPanel({ req, drivers, vehicles, onAssign, assigning }) {
         <p className="text-xs font-medium text-gray-500 mb-1">Select driver</p>
         <select className="input text-sm" value={driverId} onChange={e => setDriverId(e.target.value)}>
           <option value="">— Choose a driver —</option>
-          {drivers.map(d => (
+          {drivers.filter(d => d.is_active !== false).map(d => (
             <option key={d.id} value={d.id} disabled={d.has_active_trip}>
               {d.name}{d.has_active_trip ? ' · currently on a trip' : ''}
             </option>
